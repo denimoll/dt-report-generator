@@ -1,2 +1,3 @@
 # dt-report-generator
-Tool for generate report in docx or xlsx format from OWASP Dependency Track
+*ALERT*: Ветка develop может содержать нестабильную версию инструмента.
+Если Вы не шизик как разработчик данного инструмента, то пользуйтесь main веткой.

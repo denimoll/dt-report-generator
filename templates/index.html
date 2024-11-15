@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% from 'bootstrap5/form.html' import render_form %}
+
+{% block title %}DT report{% endblock %}
+
+{% block head %}
+    {{ super() }}
+    <style type="text/css">
+        body {
+            background-color: #fff;
+        }
+        #wrapper {
+            text-align: center;
+            width: 1000px;
+            min-width: 600px;
+            height: 100%;
+            /* background-color: #eeeeee40; */
+            margin: auto auto;
+            border-radius: 5px;
+            padding: 40px;
+        }
+        #form {
+            width: 500px;
+            background-color: #ccccccaa;
+            margin: auto auto;
+            margin-bottom: 50px;
+            padding: 20px;
+            border-radius: 25px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div id="wrapper">
+    <h2>
+        Welcome, Boy!
+    </h2>
+    <br>
+    <div id="form" align="center">
+        <h4>
+            Generate report<br>from Dependency Track
+        </h4>
+        {{ render_form(form) }}
+        <br>
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}" role="alert" id="div_flash">
+                        {{ message }}
+                        <input type="button" class="btn-close" onclick="removeFlash()" style="float: right">
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %} 
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <script>
+        function removeFlash() {
+            const element = document.getElementById("div_flash");
+            element.remove();
+        }
+    </script>
+{% endblock %}
