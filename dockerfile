@@ -1,4 +1,4 @@
-FROM python:3.12-rc-alpine3.17
+FROM python:3.13.0-alpine3.20
 RUN apk update && apk upgrade && apk add bash
 
 COPY . /app
