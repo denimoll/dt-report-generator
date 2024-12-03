@@ -2,6 +2,7 @@ from backend import report
 from flask import Flask, render_template, request, send_file, flash
 from flask_bootstrap import Bootstrap5
 from form import GetReportForm
+import os
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'devsecops'
@@ -22,4 +23,5 @@ def index():
     return render_template('index.html', form=form)
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', debug=True)
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() in ['true', '1', 't']
+    app.run(host='0.0.0.0', debug=debug_mode)
