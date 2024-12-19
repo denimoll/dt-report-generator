@@ -14,7 +14,6 @@
             width: 1000px;
             min-width: 600px;
             height: 100%;
-            /* background-color: #eeeeee40; */
             margin: auto auto;
             border-radius: 5px;
             padding: 40px;
@@ -27,7 +26,24 @@
             padding: 20px;
             border-radius: 25px;
         }
+        #severities {
+            height: 140px;
+            overflow: hidden;
+        }
+        .select2-container {
+            text-align: left;
+            border: 1px solid #ced4da;
+            border-radius: .375rem;
+        }
+
     </style>
+    <script
+        src="https://code.jquery.com/jquery-3.7.1.min.js"
+        integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+        crossorigin="anonymous">
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -62,5 +78,33 @@
             const element = document.getElementById("div_flash");
             element.remove();
         }
+    </script>
+    <script>
+        $(document).ready(function() {
+            $("#project").select2({
+                placeholder: "Type or select project",
+                allowClear: true
+            });
+            $(".selection").one("click", function(){
+                $.ajax({
+                    type: "POST",
+                    url: "/get_projects",
+                    data: {
+                        "url": $("#url").val(),
+                        "token": $("#token").val()
+                    },
+                    success: function(data) {
+                        var project_field = $("#project");
+                        projects = jQuery.parseJSON(data);
+                        $.each(projects, function (i, item) {
+                            $('#project').append($('<option>', { 
+                                value: item.value,
+                                text : item.name + " " + item.version + " (" + item.uuid + ")"
+                            }));
+                        });
+                    }
+                });
+            })
+        });
     </script>
 {% endblock %}
