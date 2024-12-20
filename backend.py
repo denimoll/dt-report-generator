@@ -3,16 +3,18 @@
 
 import json
 from datetime import datetime
+
 import requests
 import urllib3
+import validators
 from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
-import validators
 
 urllib3.disable_warnings()
 
 
 def report(config):
+    """create report from DT"""
     # variables
     doc = DocxTemplate("reports/draft.docx") # docx template
     excel = load_workbook("reports/draft.xlsx") # excel document
@@ -24,7 +26,7 @@ def report(config):
         # read config
         url = config.get('url')[0]
         token = config.get('token')[0]
-        project = config.get('project')[0]
+        project = config.get('project')[0].split("(")[1].split(")")[0]
         severities = config.get('severities')
         report_type = config.get('report_type')[0]
         
@@ -52,7 +54,7 @@ def report(config):
             raise ValueError('Report type not valid')
 
         # get common info about project
-        res = requests.get(url+'project/'+project, headers=headers, verify=False)
+        res = requests.get(url+'project/'+project, headers=headers, verify=False, timeout=1000)
         if res.status_code != 200:
             raise ConnectionError('Something wrong with connection. Check your parameters')
         text = json.loads(res.text)
@@ -67,26 +69,28 @@ def report(config):
         })
 
         # get components
-        res = requests.get(url+'component/project/'+project+'?searchText=&pageSize=99999&pageNumber=1', headers=headers, verify=False)
+        res = requests.get(url+'component/project/'+project+'?searchText=&pageSize=99999&pageNumber=1',
+            headers=headers, verify=False, timeout=10000)
         text = json.loads(res.text)
         project_info.update({'componentsCount': len(text)})
         for component in text:
             try:
                 rec_version = component.get('repositoryMeta').get('latestVersion')
-            except Exception:
+            except Exception: # pylint: disable=broad-exception-caught
                 rec_version = ""
             components.update({
                 component.get('uuid'): rec_version
             })
 
         # get vulnerabilities
-        res = requests.get(url+'vulnerability/project/'+project, headers=headers, verify=False)
+        res = requests.get(url+'vulnerability/project/'+project,
+            headers=headers, verify=False, timeout=10000)
         text = json.loads(res.text)
         project_info.update({'vulnsCount': len(text)})
         for vuln in text:
             component = vuln.get('components')[0]
             group = component.get('group')
-            if group == None:
+            if group is None:
                 group = ""
             vuln_id = vuln.get('vulnId')
             vuln_link = RichText()
@@ -169,5 +173,20 @@ def report(config):
             excel.save("reports/result.xlsx")
 
         return report_type
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-exception-caught
         return e
+
+def get_projects(url, token):
+    # header for auth request
+    headers = {
+        'X-Api-Key': token
+    }
+
+    # format url to "protocol"://"domain"/api/v1/
+    if not validators.url(url):
+        raise ValueError('URL not valid')
+    url = url.split('/api/v')[0] + '/api/v1/'
+    res = requests.get(url+
+        "project?excludeInactive=true&onlyRoot=false&searchText=&sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
+        headers=headers, verify=False, timeout=1000)
+    return res.text
