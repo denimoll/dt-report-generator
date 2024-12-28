@@ -190,3 +190,27 @@ def get_projects(url, token):
         "project?excludeInactive=true&onlyRoot=false&searchText=&sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
         headers=headers, verify=False, timeout=1000)
     return res.text
+
+
+def get_dependencyGraph(url, headers, project, depth=3):
+    def udpate_directDependencies(directDependencies, depth):
+        dependencies = []
+        for dependency in directDependencies:
+            print(dependency.get("name") + " " + dependency.get("uuid"))
+            dependencies.append({
+                "name": dependency.get("name"),
+                "version": dependency.get("version"),
+                "latestVersion": dependency.get("latestVersion"),
+                "dependencies": udpate_directDependencies(json.loads(requests.get(url+"dependencyGraph/component/"+dependency.get("uuid")+"/directDependencies",
+                headers=headers, verify=False, timeout=100).text), depth-1) if depth else []
+            })
+        return dependencies
+    req_dependencies = requests.get(url+"dependencyGraph/project/"+project+"/directDependencies",
+        headers=headers, verify=False, timeout=100)
+    directDependencies = json.loads(req_dependencies.text)
+    if not directDependencies:
+        return 0
+    else:
+        return udpate_directDependencies(directDependencies, depth-1)
+# https://www.geeksforgeeks.org/visualize-graphs-in-python/
+# https://memgraph.com/blog/graph-visualization-in-python и https://pyvis.readthedocs.io/en/latest/index.html
