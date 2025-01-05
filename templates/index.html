@@ -56,7 +56,7 @@
         <h4>
             Generate report<br>from Dependency Track
         </h4>
-        {{ render_form(form) }}
+        {{ render_form(form, action=url_for("get_report")) }}
         <br>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
@@ -88,7 +88,7 @@
             $(".selection").one("click", function(){
                 $.ajax({
                     type: "POST",
-                    url: "/get_projects",
+                    url: "/projects/get_all",
                     data: {
                         "url": $("#url").val(),
                         "token": $("#token").val()
