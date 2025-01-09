@@ -1,5 +1,11 @@
 from flask_wtf import FlaskForm
-from wtforms import SelectMultipleField, SelectField, StringField, SubmitField, validators
+from wtforms import (
+    SelectField,
+    SelectMultipleField,
+    StringField,
+    SubmitField,
+    validators,
+)
 
 
 class GetReportForm(FlaskForm):

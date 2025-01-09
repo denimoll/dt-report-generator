@@ -1,6 +1,3 @@
-# Документация по API
-# https://yoursky.blue/documentation-api/dependencytrack.html
-
 import json
 from datetime import datetime
 
@@ -13,8 +10,9 @@ from openpyxl import load_workbook
 urllib3.disable_warnings()
 
 
-def report(config):
-    """create report from DT"""
+
+def create_report(config):
+    """Create report from DT"""
     # variables
     doc = DocxTemplate("reports/draft.docx") # docx template
     excel = load_workbook("reports/draft.xlsx") # excel document
@@ -175,18 +173,3 @@ def report(config):
         return report_type
     except Exception as e: # pylint: disable=broad-exception-caught
         return e
-
-def get_projects(url, token):
-    # header for auth request
-    headers = {
-        'X-Api-Key': token
-    }
-
-    # format url to "protocol"://"domain"/api/v1/
-    if not validators.url(url):
-        raise ValueError('URL not valid')
-    url = url.split('/api/v')[0] + '/api/v1/'
-    res = requests.get(url+
-        "project?excludeInactive=true&onlyRoot=false&searchText=&sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
-        headers=headers, verify=False, timeout=1000)
-    return res.text
