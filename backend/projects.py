@@ -9,7 +9,7 @@ urllib3.disable_warnings()
 
 
 def get_projects(url, token):
-    """ Get all projects from DT """
+    """ Return all projects from DT """
     # validate parameters
     url = check_format_url(url)
     headers = check_token(token, url)

@@ -10,7 +10,8 @@ urllib3.disable_warnings()
 
 
 def get_graph(url, headers, project, depth=3):
-    def udpate_directDependencies(directDependencies, depth):
+    """ Return dependency graph """
+    def udpate_directDependencies(directDependencies, depth): # not snake_case cause DT use this naming
         dependencies = []
         for dependency in directDependencies:
             dependencies.append({
