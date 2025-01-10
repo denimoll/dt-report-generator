@@ -16,6 +16,7 @@ def get_projects(url, token):
 
     # get projects
     res = requests.get(url+
-        "project?excludeInactive=true&onlyRoot=false&searchText=&sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
+        "project?excludeInactive=true&onlyRoot=false&searchText=&\
+        sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
         headers=headers, verify=False, timeout=1000)
     return res.text

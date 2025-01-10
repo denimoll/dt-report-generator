@@ -1,4 +1,5 @@
 """ Module for tasks with dependencyGraph """
+# not snake_case cause DT use this naming
 
 import json
 
@@ -11,14 +12,15 @@ urllib3.disable_warnings()
 
 def get_graph(url, headers, project, depth=3):
     """ Return dependency graph """
-    def udpate_directDependencies(directDependencies, depth): # not snake_case cause DT use this naming
+    def udpate_directDependencies(directDependencies, depth):
         dependencies = []
         for dependency in directDependencies:
             dependencies.append({
                 "name": dependency.get("name"),
                 "version": dependency.get("version"),
                 "latestVersion": dependency.get("latestVersion"),
-                "dependencies": udpate_directDependencies(json.loads(requests.get(url+"dependencyGraph/component/"+dependency.get("uuid")+"/directDependencies",
+                "dependencies": udpate_directDependencies(json.loads(requests.get(url+
+                    "dependencyGraph/component/"+dependency.get("uuid")+"/directDependencies",
                 headers=headers, verify=False, timeout=100).text), depth-1) if depth else []
             })
         return dependencies
