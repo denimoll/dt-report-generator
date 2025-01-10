@@ -37,16 +37,19 @@ def create_report(config):
         text = json.loads(res.text)
         project_name = RichText()
         project_name_str = text.get("name")
-        project_name.add(project_name_str, url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
+        project_name.add(project_name_str,
+            url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
         project_info.update({
             "name": project_name,
             "version": text.get("version"),
-            "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or 0)/1000).strftime("%d.%m.%Y %H:%M"),
+            "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
+                                                    0)/1000).strftime("%d.%m.%Y %H:%M"),
             "date": datetime.now().strftime("%d.%m.%Y %H:%M")
         })
 
         # get components
-        res = requests.get(url+"component/project/"+project+"?searchText=&pageSize=99999&pageNumber=1",
+        res = requests.get(url+"component/project/"+project+
+            "?searchText=&pageSize=99999&pageNumber=1",
             headers=headers, verify=False, timeout=10000)
         text = json.loads(res.text)
         project_info.update({"componentsCount": len(text)})
@@ -72,9 +75,11 @@ def create_report(config):
             vuln_id = vuln.get("vulnId")
             vuln_link = RichText()
             if vuln_id.lower().find("cve") != -1:
-                vuln_link.add(vuln_id, url_id=doc.build_url_id("https://nvd.nist.gov/vuln/detail/"+vuln_id))
+                vuln_link.add(vuln_id,
+                              url_id=doc.build_url_id("https://nvd.nist.gov/vuln/detail/"+vuln_id))
             elif vuln_id.lower().find("ghsa") != -1:
-                vuln_link.add(vuln_id, url_id=doc.build_url_id("https://github.com/advisories/"+vuln_id))
+                vuln_link.add(vuln_id,
+                              url_id=doc.build_url_id("https://github.com/advisories/"+vuln_id))
             else:
                 vuln_link = vuln_id
             vulns.append({
@@ -87,12 +92,14 @@ def create_report(config):
             })
 
         # sort, filter vulnerabilities and components
-        uniq_vulns = sorted(list(map(dict, set(tuple(sorted(sub.items())) for sub in vulns))), key=lambda d: (d["component"], d["severity"], d["version"]))
-        vulns_severity = [i for i in uniq_vulns if (i["severity"].lower() in severities)]
+        uniq_vulns = sorted(list(map(dict, set(tuple(sorted(sub.items())) for sub in vulns))),
+                            key=lambda d: (d["component"], d["severity"], d["version"]))
+        vulns_severity = [i for i in uniq_vulns if i["severity"].lower() in severities]
         vuln_component_temp1 = set()
         vuln_component_temp2 = []
         for dic in vulns_severity:
-            vuln_component_temp1.add(str(dic.get("component"))+", "+str(dic.get("version"))+", "+str(dic.get("group"))+", "+str(dic.get("rec_version")))
+            vuln_component_temp1.add(str(dic.get("component"))+", "+str(dic.get("version"))+", "+
+                                     str(dic.get("group"))+", "+str(dic.get("rec_version")))
         for v in vuln_component_temp1:
             i = v.split(", ")
             vuln_component_temp2.append({
@@ -101,7 +108,8 @@ def create_report(config):
                 "group": i[2],
                 "rec_version": i[3]
             })
-        vuln_components = sorted(list(map(dict, set(tuple(sorted(sub.items())) for sub in vuln_component_temp2))), key=lambda d: (d["component"], d["version"]))
+        vuln_components = sorted(list(map(dict, set(tuple(sorted(sub.items()))
+            for sub in vuln_component_temp2))), key=lambda d: (d["component"], d["version"]))
 
         # render and save result in docx report
         if report_type == "word":
@@ -140,9 +148,11 @@ def create_report(config):
                     vuln_id = str(vuln_name).split('preserve">')[1].split('</w:t')[0]
                     ws3.cell(row=num+2, column=5, value=vuln_id)
                     if vuln_id.lower().find("cve") != -1:
-                        ws3.cell(row=num+2, column=5).hyperlink = "https://nvd.nist.gov/vuln/detail/"+vuln_id
+                        ws3.cell(row=num+2,
+                                 column=5).hyperlink="https://nvd.nist.gov/vuln/detail/"+vuln_id
                     elif vuln_id.lower().find("ghsa") != -1:
-                        ws3.cell(row=num+2, column=5).hyperlink = "https://github.com/advisories/"+vuln_id
+                        ws3.cell(row=num+2,
+                                 column=5).hyperlink="https://github.com/advisories/"+vuln_id
                 else:
                     ws3.cell(row=num+2, column=5, value=str(vuln_name))
                 ws3.cell(row=num+2, column=6, value=vuln.get("severity").lower())

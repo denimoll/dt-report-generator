@@ -32,7 +32,7 @@ def get_report():
     result = request.form.to_dict(flat=False)
     req_report = create_report(result)
     if req_report == "word":
-        return send_file("./reports/result.docx", as_attachment=True) 
+        return send_file("./reports/result.docx", as_attachment=True)
     elif req_report == "excel":
         return send_file("./reports/result.xlsx", as_attachment=True)
     else:
