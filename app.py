@@ -36,7 +36,7 @@ def get_report():
     elif req_report == "excel":
         return send_file("./reports/result.xlsx", as_attachment=True)
     else:
-        flash(req_report, "danger")
+        flash(str(req_report), "danger")
     return redirect(url_for("index"))
 
 
