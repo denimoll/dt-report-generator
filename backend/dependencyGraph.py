@@ -1,3 +1,5 @@
+""" Module for tasks with dependencyGraph """
+
 import json
 
 import requests

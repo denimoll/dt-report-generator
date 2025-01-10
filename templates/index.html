@@ -80,30 +80,41 @@
         }
     </script>
     <script>
+        var req_get_all = 1;
         $(document).ready(function() {
             $("#project").select2({
-                placeholder: "Type or select project",
+                placeholder: "Click to load projects from DT and wait",
                 allowClear: true
             });
-            $(".selection").one("click", function(){
-                $.ajax({
-                    type: "POST",
-                    url: "/projects/get_all",
-                    data: {
-                        "url": $("#url").val(),
-                        "token": $("#token").val()
-                    },
-                    success: function(data) {
-                        var project_field = $("#project");
-                        projects = jQuery.parseJSON(data);
-                        $.each(projects, function (i, item) {
-                            $('#project').append($('<option>', { 
-                                value: item.value,
-                                text : item.name + " " + item.version + " (" + item.uuid + ")"
-                            }));
-                        });
-                    }
-                });
+            $(".selection").on("click", function(){
+                var project_field = $("#project");
+                if (project_field[0].length == 1 && req_get_all) {
+                    req_get_all = 0;
+                    $.ajax({
+                        type: "POST",
+                        url: "/projects/get_all",
+                        data: {
+                            "url": $("#url").val(),
+                            "token": $("#token").val()
+                        },
+                        success: function(data) {
+                            projects = jQuery.parseJSON(data);
+                            $.each(projects, function (i, item) {
+                                project_field.append($('<option>', { 
+                                    value: item.value,
+                                    text : item.name + " " + item.version + " (" + item.uuid + ")"
+                                }));
+                            });
+                            $("#project").select2({
+                                placeholder: "Select project",
+                            });
+                        },
+                        error: function(data) {
+                            req_get_all = 1;
+                            location.reload();
+                        }
+                    });
+                }
             })
         });
     </script>
