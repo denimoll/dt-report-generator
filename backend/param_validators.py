@@ -21,7 +21,7 @@ def check_token(token, url):
     headers = {
         "X-Api-Key": token
     }
-    res = requests.get(url+"user/self", headers=headers, verify=False, timeout=100)
+    res = requests.get(url+"project", headers=headers, verify=False, timeout=100)
     if res.status_code != 200:
         raise ConnectionError("Something wrong with connection. Check your parameters")
     return headers
