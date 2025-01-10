@@ -3,7 +3,7 @@
 import os
 import secrets
 
-# from backend.dependencyGraph import get_dependencyGraph
+# from backend.dependencyGraph import get_graph
 from flask import (Flask, flash, jsonify, redirect, render_template, request,
                    send_file, url_for)
 from flask_bootstrap import Bootstrap5

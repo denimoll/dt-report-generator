@@ -9,7 +9,7 @@ urllib3.disable_warnings()
 
 
 
-def get_dependencyGraph(url, headers, project, depth=3):
+def get_graph(url, headers, project, depth=3):
     def udpate_directDependencies(directDependencies, depth):
         dependencies = []
         for dependency in directDependencies:
