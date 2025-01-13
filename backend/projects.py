@@ -2,7 +2,8 @@
 
 import requests
 import urllib3
-from backend.param_validators import (check_format_url, check_token)
+
+from backend.param_validators import check_format_url, check_token
 
 urllib3.disable_warnings()
 
