@@ -3,13 +3,21 @@
 import os
 import secrets
 
-# from backend.dependencyGraph import get_graph
-from flask import (Flask, flash, jsonify, redirect, render_template, request,
-                   send_file, url_for)
-from flask_bootstrap import Bootstrap5
-
+from backend.dependencyGraph import get_graph
 from backend.projects import get_projects
 from backend.reports import create_report
+from flask import (
+    Flask,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    render_template_string,
+    request,
+    send_file,
+    url_for,
+)
+from flask_bootstrap import Bootstrap5
 from form import GetReportForm
 
 app = Flask(__name__)
@@ -50,8 +58,24 @@ def get_all_projects():
     except (ValueError, ConnectionError) as e:
         flash(str(e), "danger")
         return jsonify(error_msg=str(e)), 400
+    
+
+# GRAPH GROUP
+@app.route("/dependencyGraph/get_graph", methods=["POST"])
+def get_dependencyGraph():
+    """ API Endpoint /dependencyGraph/get_graph """
+    data = request.form.to_dict(flat=False)
+    graph = get_graph(data.get("url")[0], data.get("token")[0], data.get("project")[0])
+    if graph:
+        source = """
+        <html><head><link rel="stylesheet" href="resource://content-accessible/plaintext.css"></head><body><pre>
+        {{graph}}
+        </pre></body></html>"""
+        return render_template_string(source, graph=graph)
+    else:
+        return jsonify(graph=None), 404
 
 
 if __name__ == "__main__":
     debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ["true", "1", "t"]
-    app.run(host="0.0.0.0", port=5000, debug=debug_mode)
+    app.run(host="0.0.0.0", port=5001, debug=debug_mode)
