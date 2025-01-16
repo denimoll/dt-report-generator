@@ -12,11 +12,14 @@ from backend.param_validators import check_format_url, check_token
 urllib3.disable_warnings()
 
 class Tree:
+    """ Classic tree class """
     def __init__(self, value):
+        """ Init """
         self.val = value
         self.children = []
 
     def add_child(self, child):
+        """ Add child for root """
         self.children.append(child)
         return child
 
@@ -26,7 +29,7 @@ def get_graph(url, token, project, depth=3):
     # validate parameters
     url = check_format_url(url)
     headers = check_token(token, url)
-    # 
+    # create Pretty Tree
     pt = PrettyPrintTree(
         lambda x: x.children,
         lambda x: x.val,
@@ -44,22 +47,23 @@ def get_graph(url, token, project, depth=3):
                 "name": dependency.get("name"),
                 "version": dependency.get("version"),
                 "latestVersion": dependency.get("latestVersion"),
-                "vulnerabilities": json.loads(requests.get(url+
-                    "vulnerability/component/"+dependency.get("uuid")+"?searchText=&pageSize=100&pageNumber=1",
+                "vulnerabilities": json.loads(requests.get(url+"vulnerability/component/"+
+                    dependency.get("uuid")+"?searchText=&pageSize=100&pageNumber=1",
                 headers=headers, verify=False, timeout=100).text),
                 "dependencies": udpate_directDependencies(json.loads(requests.get(url+
                     "dependencyGraph/component/"+dependency.get("uuid")+"/directDependencies",
                 headers=headers, verify=False, timeout=100).text), depth-1) if depth else []
             })
         return dependencies
-    
+
     def update_tree(tree, dependencies):
         """ Recurs update dependency tree """
         for dependency in dependencies:
             if dependency.get("vulnerabilities"):
                 vuln_critical = set(x.get("severity") for x in dependency.get("vulnerabilities"))
-                node_name = "  [VULNERABLE]  \n  %s@%s  \n  Severity: %s  \n  Update to %s version  " \
-                            % (dependency.get("name"), dependency.get("version"), ", ".join(vuln_critical), dependency.get("latestVersion"))
+                node_name = "  [VULNERABLE]  \n  %s@%s  \n  Severity: %s  \n  Last version %s  "\
+                            % (dependency.get("name"), dependency.get("version"),
+                               ", ".join(vuln_critical), dependency.get("latestVersion"))
             else:
                 node_name = "  %s@%s  " % (dependency.get("name"), dependency.get("version"))
             d = tree.add_child(Tree(node_name))
