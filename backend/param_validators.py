@@ -40,9 +40,3 @@ def check_severities(severities):
         if i not in ["critical", "high", "medium", "low", "unassigned"]:
             raise ValueError("Severities contain wrong value")
     return severities
-
-def check_report_type(report_type):
-    """ Check existence report type parameter """
-    if report_type not in ["word", "excel"]:
-        raise ValueError("Report type not valid")
-    return report_type

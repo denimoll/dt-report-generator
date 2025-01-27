@@ -22,6 +22,4 @@ class GetReportForm(FlaskForm):
         choices=[("critical", "Critical"), ("high", "High"), ("medium", "Medium"),
                  ("low", "Low"), ("unassigned", "Unassigned")],
         default=["critical", "high"])
-    report_type = SelectField("Report type",
-        choices=[("word", "Word"), ("excel", "Excel")], default="word")
     submit = SubmitField("Get report")

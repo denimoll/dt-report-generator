@@ -7,8 +7,9 @@ import requests
 import urllib3
 from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
+
 from backend.param_validators import (check_format_url, check_project,
-                              check_report_type, check_severities, check_token)
+                                      check_severities, check_token)
 
 urllib3.disable_warnings()
 
@@ -30,7 +31,6 @@ def create_report(config):
         headers = check_token(token, url)
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
         severities = check_severities(config.get("severities"))
-        report_type = check_report_type(config.get("report_type")[0])
 
         # get common info about project
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
@@ -111,52 +111,53 @@ def create_report(config):
         vuln_components = sorted(list(map(dict, set(tuple(sorted(sub.items()))
             for sub in vuln_component_temp2))), key=lambda d: (d["component"], d["version"]))
 
-        # render and save result in docx report
-        if report_type == "word":
-            doc.render({
-                "vuln": uniq_vulns,
-                "vuln_component": vuln_components,
-                "severities": ", ".join(severities),
-                "project": project_info
-            })
-            doc.save("reports/result.docx")
-        else:
-            # write and save result in excel report
-            ws1 = excel["Общая информация"]
-            ws1["D2"].value = project_name_str + " (версия: " + project_info.get("version") + ")"
-            ws1["D2"].hyperlink = url.split("api/v1/")[0]+"projects/"+project
-            ws1["D3"] = project_info.get("componentsCount")
-            ws1["D4"] = project_info.get("vulnsCount")
-            ws1["D5"] = project_info.get("lastBomImport")
-            ws1["D6"] = project_info.get("date")
-            ws2 = excel["Sheet2"]
-            ws2.title =  ", ".join(severities) + " компоненты"
-            for num, component in enumerate(vuln_components):
-                ws2.cell(row=num+2, column=1, value=num+1)
-                ws2.cell(row=num+2, column=2, value=component.get("component"))
-                ws2.cell(row=num+2, column=3, value=str(component.get("version")))
-                ws2.cell(row=num+2, column=4, value=component.get("group"))
-                ws2.cell(row=num+2, column=5, value=str(component.get("rec_version")))
-            ws3 = excel["Все срабатывания"]
-            for num, vuln in enumerate(uniq_vulns):
-                ws3.cell(row=num+2, column=1, value=num+1)
-                ws3.cell(row=num+2, column=2, value=vuln.get("component"))
-                ws3.cell(row=num+2, column=3, value=str(vuln.get("version")))
-                ws3.cell(row=num+2, column=4, value=vuln.get("group"))
-                vuln_name = vuln.get("vulnerability")
-                if isinstance(vuln_name, RichText):
-                    vuln_id = str(vuln_name).split('preserve">')[1].split('</w:t')[0]
-                    ws3.cell(row=num+2, column=5, value=vuln_id)
-                    if vuln_id.lower().find("cve") != -1:
-                        ws3.cell(row=num+2,
-                                 column=5).hyperlink="https://nvd.nist.gov/vuln/detail/"+vuln_id
-                    elif vuln_id.lower().find("ghsa") != -1:
-                        ws3.cell(row=num+2,
-                                 column=5).hyperlink="https://github.com/advisories/"+vuln_id
-                else:
-                    ws3.cell(row=num+2, column=5, value=str(vuln_name))
-                ws3.cell(row=num+2, column=6, value=vuln.get("severity").lower())
-            excel.save("reports/result.xlsx")
-        return report_type
+        # render and save result in word and excel report
+        # word
+        doc.render({
+            "vuln": uniq_vulns,
+            "vuln_component": vuln_components,
+            "severities": ", ".join(severities),
+            "project": project_info
+        })
+        doc.save("reports/result.docx")
+        # excel
+        ws1 = excel["Общая информация"]
+        ws1["D2"].value = project_name_str + " (версия: " + project_info.get("version") + ")"
+        ws1["D2"].hyperlink = url.split("api/v1/")[0]+"projects/"+project
+        ws1["D3"] = project_info.get("componentsCount")
+        ws1["D4"] = project_info.get("vulnsCount")
+        ws1["D5"] = project_info.get("lastBomImport")
+        ws1["D6"] = project_info.get("date")
+        ws2 = excel["Sheet2"]
+        ws2.title =  ", ".join(severities) + " компоненты"
+        for num, component in enumerate(vuln_components):
+            ws2.cell(row=num+2, column=1, value=num+1)
+            ws2.cell(row=num+2, column=2, value=component.get("component"))
+            ws2.cell(row=num+2, column=3, value=str(component.get("version")))
+            ws2.cell(row=num+2, column=4, value=component.get("group"))
+            ws2.cell(row=num+2, column=5, value=str(component.get("rec_version")))
+        ws3 = excel["Все срабатывания"]
+        for num, vuln in enumerate(uniq_vulns):
+            ws3.cell(row=num+2, column=1, value=num+1)
+            ws3.cell(row=num+2, column=2, value=vuln.get("component"))
+            ws3.cell(row=num+2, column=3, value=str(vuln.get("version")))
+            ws3.cell(row=num+2, column=4, value=vuln.get("group"))
+            vuln_name = vuln.get("vulnerability")
+            if isinstance(vuln_name, RichText):
+                vuln_id = str(vuln_name).split('preserve">')[1].split('</w:t')[0]
+                ws3.cell(row=num+2, column=5, value=vuln_id)
+                if vuln_id.lower().find("cve") != -1:
+                    ws3.cell(row=num+2,
+                                column=5).hyperlink="https://nvd.nist.gov/vuln/detail/"+vuln_id
+                elif vuln_id.lower().find("ghsa") != -1:
+                    ws3.cell(row=num+2,
+                                column=5).hyperlink="https://github.com/advisories/"+vuln_id
+            else:
+                ws3.cell(row=num+2, column=5, value=str(vuln_name))
+            ws3.cell(row=num+2, column=6, value=vuln.get("severity").lower())
+        excel.save("reports/result.xlsx")
+        return "%s %s (%s)" % (config.get("project")[0].split(" ")[0],
+                               project_info.get("version"),
+                               datetime.now().strftime("%d.%m.%Y"))
     except (ValueError, ConnectionError) as e:
         return e
