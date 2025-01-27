@@ -1,3 +1,6 @@
 reports/result*
 __pycache__
 helpfull_info.md
+.DS_Store
+reports/graph.html
+reports/reports.zip

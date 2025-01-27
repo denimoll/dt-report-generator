@@ -1,23 +1,23 @@
+""" Module for tasks with projects """
+
 import requests
 import urllib3
-import validators
+
+from backend.param_validators import check_format_url, check_token
 
 urllib3.disable_warnings()
 
 
 
 def get_projects(url, token):
-    """Get all projects from DT"""
-    # header for auth request
-    headers = {
-        'X-Api-Key': token
-    }
+    """ Return all projects from DT """
+    # validate parameters
+    url = check_format_url(url)
+    headers = check_token(token, url)
 
-    # format url to "protocol"://"domain"/api/v1/
-    if not validators.url(url):
-        raise ValueError('URL not valid')
-    url = url.split('/api/v')[0] + '/api/v1/'
+    # get projects
     res = requests.get(url+
-        "project?excludeInactive=true&onlyRoot=false&searchText=&sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
+        "project?excludeInactive=true&onlyRoot=false&searchText=&\
+        sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1",
         headers=headers, verify=False, timeout=1000)
     return res.text
