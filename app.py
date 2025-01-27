@@ -13,6 +13,7 @@ from backend.projects import get_projects
 from backend.reports import create_report
 from form import GetReportForm
 
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
@@ -70,8 +71,8 @@ def get_all_projects():
     try:
         return get_projects(data.get("url")[0], data.get("token")[0])
     except (ValueError, ConnectionError) as e:
-        flash(str(e), "danger")
-        return jsonify(error_msg=str(e)), 400
+        flash("An internal error has occurred.", "danger")
+        return jsonify(error_msg="An internal error has occurred"), 400
 
 
 # GRAPH GROUP
