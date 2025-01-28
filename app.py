@@ -70,7 +70,7 @@ def get_all_projects():
     data = request.form.to_dict(flat=False)
     try:
         return get_projects(data.get("url")[0], data.get("token")[0])
-    except (ValueError, ConnectionError) as e:
+    except (ValueError, ConnectionError):
         flash("An internal error has occurred.", "danger")
         return jsonify(error_msg="An internal error has occurred"), 400
 
