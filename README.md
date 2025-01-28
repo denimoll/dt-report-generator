@@ -1,7 +1,7 @@
 # dt-report-generator
 ## Main information
-Инструмент разработан для выгрузки отчетов из [Dependency Track](https://dependencytrack.org/) в форматах Word (.docx) и Excel (.xlsx).\
-Подробнее об инструменте и способе использования есть в статье на [habr](https://habr.com/ru/articles/860536/).
+Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) и Excel (.xlsx) formats.\
+More information about tool and how to use it can be found in the article on [habr](https://habr.com/ru/articles/860536/) (rus).
 ## Getting started
 ### Installation and start
 №1. Python
@@ -18,21 +18,21 @@
 # docker run -d -p 5000:5000 dt-report:v1
 ```
 ### Usage
-1. Открыть в браузере [localhost:5000](http://localhost:5000)
-2. Заполнить форму:
-    - URL - адрес DT (формат "protocol"://"domain"). Например, [https://dependencytrack.org](https://dependencytrack.org). Автоматически подставляется путь до API - */api/v1/*
-    - Token - API ключ ([как получить](https://docs.dependencytrack.org/integrations/rest-api/))
-    - Project - ID проекта (параметр Object Identifier в Project Details или идентификатор в URL после ".../projects/")
-    - Severities - уровни критичности
-3. Нажать "Get report"
-4. Подождать
+1. Open in browser [localhost:5000](http://localhost:5000)
+2. Fill out the form:
+    - URL - DT address (format "protocol"://"domain"). For example, [https://dependencytrack.org](https://dependencytrack.org). The path to the API is automatically substituted - */api/v1/*
+    - Token - API key ([how to get](https://docs.dependencytrack.org/integrations/rest-api/))
+    - Project - project ID (Object Identifier parameter in Project Details or identifier in the URL after ".../projects/")
+    - Severities - severity levels
+3. Click "Get report"
+4. Wait
 
 ## Roadmap
-Запланированный функционал:
-- [x] *Поиск проектов*. Упростить поиск проектов через предоставленную ссылку и токен.
-- [x] *Дерево зависимостей*. Выгружать дерево с отметкой уязвимых компонентов.
-- [ ] *Дашборды с обзорной информацией*. Визуализировать данные в виде различных графиков для наглядного анализа.
-- [ ] *Приоритезация уязвимостей*. Реализовать логику, которая поможет оценить, какие уязвимости требуют первоочередного исправления.
-- [ ] *Релизная политика*. Сформировать правила выпуска релизов и публиковать сразу Docker-образы.
-- [ ] *Безопасное использование as a service*. Добавить возможность определения доверенных адресов (исключение SSRF) или отключение выбора URL и token через задание дефолтных значений.
-- [ ] *Оптимизация*. Добавить БД.
+Planned functionality:
+- [x] *Project search*. Simplify the search for projects via the provided link and token.
+- [x] *Dependency tree*. Export the tree with vulnerable components marked.
+- [ ] *Dashboards with overview information*. Visualize data in the form of various graphs for visual analysis.
+- [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
+- [ ] *Release policy*. Create release rules and publish Docker images.
+- [ ] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
+- [ ] *Optimization*. Add a Database.
