@@ -121,22 +121,22 @@ def create_report(config):
         })
         doc.save("reports/result.docx")
         # excel
-        ws1 = excel["Общая информация"]
-        ws1["D2"].value = project_name_str + " (версия: " + project_info.get("version") + ")"
+        ws1 = excel["General information"]
+        ws1["D2"].value = project_name_str + " (version: " + project_info.get("version") + ")"
         ws1["D2"].hyperlink = url.split("api/v1/")[0]+"projects/"+project
         ws1["D3"] = project_info.get("componentsCount")
         ws1["D4"] = project_info.get("vulnsCount")
         ws1["D5"] = project_info.get("lastBomImport")
         ws1["D6"] = project_info.get("date")
         ws2 = excel["Sheet2"]
-        ws2.title =  ", ".join(severities) + " компоненты"
+        ws2.title =  ",".join(s[:4] for s in severities) + " deps"
         for num, component in enumerate(vuln_components):
             ws2.cell(row=num+2, column=1, value=num+1)
             ws2.cell(row=num+2, column=2, value=component.get("component"))
             ws2.cell(row=num+2, column=3, value=str(component.get("version")))
             ws2.cell(row=num+2, column=4, value=component.get("group"))
             ws2.cell(row=num+2, column=5, value=str(component.get("rec_version")))
-        ws3 = excel["Все срабатывания"]
+        ws3 = excel["All issues"]
         for num, vuln in enumerate(uniq_vulns):
             ws3.cell(row=num+2, column=1, value=num+1)
             ws3.cell(row=num+2, column=2, value=vuln.get("component"))
