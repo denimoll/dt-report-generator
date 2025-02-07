@@ -41,7 +41,7 @@ def create_report(config):
             url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
         project_info.update({
             "name": project_name,
-            "version": text.get("version"),
+            "version": text.get("version") or "no version",
             "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
                                                     0)/1000).strftime("%d.%m.%Y %H:%M"),
             "date": datetime.now().strftime("%d.%m.%Y %H:%M")
