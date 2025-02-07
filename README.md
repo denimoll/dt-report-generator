@@ -12,6 +12,7 @@ pip install -r requirements.txt
 python ./app.py
 ```
 №2. Docker
+
 ```
 docker pull ghcr.io/denimoll/dt-report-generator:latest
 docker run --name dt-report-generator -d -p 5000:5000 ghcr.io/denimoll/dt-report-generator

@@ -41,7 +41,7 @@ def create_report(config):
             url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
         project_info.update({
             "name": project_name,
-            "version": text.get("version"),
+            "version": text.get("version") or "no version",
             "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
                                                     0)/1000).strftime("%d.%m.%Y %H:%M"),
             "date": datetime.now().strftime("%d.%m.%Y %H:%M")
@@ -129,7 +129,7 @@ def create_report(config):
         ws1["D5"] = project_info.get("lastBomImport")
         ws1["D6"] = project_info.get("date")
         ws2 = excel["Sheet2"]
-        ws2.title =  ", ".join(s[:2] for s in severities) + " dependencies"
+        ws2.title =  ",".join(s[:4] for s in severities) + " deps"
         for num, component in enumerate(vuln_components):
             ws2.cell(row=num+2, column=1, value=num+1)
             ws2.cell(row=num+2, column=2, value=component.get("component"))
