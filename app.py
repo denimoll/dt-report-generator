@@ -4,15 +4,15 @@ import os
 import secrets
 import zipfile
 
-from flask import (Flask, flash, jsonify, redirect, render_template,
-                   request, send_file, url_for)
+import requests
+from flask import (Flask, flash, jsonify, redirect, render_template, request,
+                   send_file, url_for)
 from flask_bootstrap import Bootstrap5
 
 from backend.dependencyGraph import get_graph
 from backend.projects import get_projects
 from backend.reports import create_report
 from form import GetReportForm
-
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
@@ -70,7 +70,7 @@ def get_all_projects():
     data = request.form.to_dict(flat=False)
     try:
         return get_projects(data.get("url")[0], data.get("token")[0])
-    except (ValueError, ConnectionError):
+    except (ValueError, ConnectionError, requests.exceptions.ConnectionError):
         flash("An internal error has occurred.", "danger")
         return jsonify(error_msg="An internal error has occurred"), 400
 
