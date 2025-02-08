@@ -88,6 +88,8 @@
             });
             $(".selection").on("click", function(){
                 var project_field = $("#project");
+                sessionStorage.setItem("url", $("#url").val());
+                sessionStorage.setItem("token", $("#token").val());
                 if (project_field[0].length == 1 && req_get_all) {
                     req_get_all = 0;
                     $.ajax({
@@ -112,6 +114,10 @@
                         error: function(data) {
                             req_get_all = 1;
                             location.reload();
+                        },
+                        complete: function(data) {
+                            $("#url").val(sessionStorage.getItem("url"));
+                            $("#token").val(sessionStorage.getItem("token"));
                         }
                     });
                 }
