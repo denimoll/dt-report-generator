@@ -27,8 +27,7 @@ def create_report(config):
     try:
         # read config and validate parameters
         url = check_format_url(config.get("url")[0])
-        token = config.get("token")[0]
-        headers = check_token(token, url)
+        headers = check_token(config.get("token")[0], url)
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
         severities = check_severities(config.get("severities"))
 
@@ -44,19 +43,20 @@ def create_report(config):
             "version": text.get("version") or "no version",
             "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
                                                     0)/1000).strftime("%d.%m.%Y %H:%M"),
-            "date": datetime.now().strftime("%d.%m.%Y %H:%M")
+            "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+            "componentsCount": text.get("metrics").get("components"),
+            "vulnsCount": text.get("metrics").get("vulnerabilities"),
+            "vulnComponentsCount": text.get("metrics").get("vulnerableComponents")
         })
 
         # get components
         res = requests.get(url+"component/project/"+project+
             "?searchText=&pageSize=99999&pageNumber=1",
             headers=headers, verify=False, timeout=10000)
-        text = json.loads(res.text)
-        project_info.update({"componentsCount": len(text)})
-        for component in text:
+        for component in json.loads(res.text):
             try:
                 rec_version = component.get("repositoryMeta").get("latestVersion")
-            except Exception: # pylint: disable=broad-exception-caught
+            except AttributeError:
                 rec_version = ""
             components.update({
                 component.get("uuid"): rec_version
@@ -65,9 +65,7 @@ def create_report(config):
         # get vulnerabilities
         res = requests.get(url+"vulnerability/project/"+project,
             headers=headers, verify=False, timeout=10000)
-        text = json.loads(res.text)
-        project_info.update({"vulnsCount": len(text)})
-        for vuln in text:
+        for vuln in json.loads(res.text):
             component = vuln.get("components")[0]
             group = component.get("group")
             if group is None:
