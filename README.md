@@ -32,5 +32,9 @@ Planned functionality:
 - [ ] *Dashboards with overview information*. Visualize data in the form of various graphs for visual analysis.
 - [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
 - [ ] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
-- [ ] *Optimization*. Add a Database.
+- [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
+- [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
+- [ ] *Icon*. Create an icon for tool and add a favicon.
+- [ ] *Reports*. Add a text to docx when 0 vulns.
+- [ ] *Graph*. Manage deep of graph, 
