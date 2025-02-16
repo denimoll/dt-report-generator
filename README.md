@@ -22,7 +22,6 @@ docker run --name dt-report-generator -d -p 5000:5000 ghcr.io/denimoll/dt-report
     - URL - DT address (format "protocol"://"domain"). For example, [https://dependencytrack.org](https://dependencytrack.org). The path to the API is automatically substituted - */api/v1/*
     - Token - API key ([how to get](https://docs.dependencytrack.org/integrations/rest-api/))
     - Project - project ID (Object Identifier parameter in Project Details or identifier in the URL after ".../projects/")
-    - Severities - severity levels
 3. Click "Get report"
 4. Wait
 ## Roadmap

@@ -8,11 +8,22 @@ import urllib3
 from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
 
-from backend.param_validators import (check_format_url, check_project,
-                                      check_severities, check_token)
+from backend.param_validators import check_format_url, check_project, check_token
 
 urllib3.disable_warnings()
 
+
+
+def get_severity(severities):
+    severity = {
+        "unknown": 0,
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "critical": 4
+    }
+    level = max(list(severity[x] for x in severities))
+    return level, [key for key, val in severity.items() if val == level][0]
 
 
 def create_report(config):
@@ -22,16 +33,14 @@ def create_report(config):
     excel = load_workbook("reports/draft.xlsx") # excel document
     project_info = {} # common info about project
     components = {} # dict of components
-    vulns = [] # list of vulnerabilities
 
     try:
         # read config and validate parameters
         url = check_format_url(config.get("url")[0])
         headers = check_token(config.get("token")[0], url)
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
-        severities = check_severities(config.get("severities"))
-
-        # get common info about project
+       
+       # get common info about project
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
         text = json.loads(res.text)
         project_name = RichText()
@@ -48,6 +57,23 @@ def create_report(config):
             "vulnsCount": text.get("metrics").get("vulnerabilities"),
             "vulnComponentsCount": text.get("metrics").get("vulnerableComponents")
         })
+        if text.get("directDependencies"):
+            direct_dependencies = list(x.get("uuid")
+                                    for x in json.loads(text.get("directDependencies")))
+        else:
+            direct_dependencies = []
+        
+        # get sbom with info about vulnerabilities and dependencies of dependencies
+        res = requests.get(url+"bom/cyclonedx/project/"+project
+                           +"?format=json&variant=withVulnerabilities&download=true",
+                           headers=headers, verify=False, timeout=10000)
+        text = json.loads(res.text)
+        vulnerabilities = text.get("vulnerabilities")
+        deps_deps = {}
+        for deps in text.get("dependencies"):
+            deps_deps.update({
+                deps.get("ref"):deps.get("dependsOn")
+            })
 
         # get components
         res = requests.get(url+"component/project/"+project+
@@ -55,107 +81,103 @@ def create_report(config):
             headers=headers, verify=False, timeout=10000)
         for component in json.loads(res.text):
             try:
-                rec_version = component.get("repositoryMeta").get("latestVersion")
+                last_version = component.get("repositoryMeta").get("latestVersion")
             except AttributeError:
-                rec_version = ""
+                last_version = ""
             components.update({
-                component.get("uuid"): rec_version
+                component.get("uuid"): {
+                    "name": component.get("name"),
+                    "version": component.get("version"),
+                    "group": component.get("group") or "",
+                    "last_version": last_version,
+                    "is_direct_dependency": component.get("uuid") in direct_dependencies,
+                    "dependencies": deps_deps[component.get("uuid")],
+                    "vulnerabilities": [],
+                    "severity": "",
+                    "severity_level": 0,
+                    "graph_level": 0
+                }
             })
 
-        # get vulnerabilities
-        res = requests.get(url+"vulnerability/project/"+project,
-            headers=headers, verify=False, timeout=10000)
-        for vuln in json.loads(res.text):
-            component = vuln.get("components")[0]
-            group = component.get("group")
-            if group is None:
-                group = ""
-            vuln_id = vuln.get("vulnId")
-            vuln_link = RichText()
-            if vuln_id.lower().find("cve") != -1:
-                vuln_link.add(vuln_id,
-                              url_id=doc.build_url_id("https://nvd.nist.gov/vuln/detail/"+vuln_id))
-            elif vuln_id.lower().find("ghsa") != -1:
-                vuln_link.add(vuln_id,
-                              url_id=doc.build_url_id("https://github.com/advisories/"+vuln_id))
-            else:
-                vuln_link = vuln_id
-            vulns.append({
-                "component": component.get("name"),
-                "version": component.get("version"),
-                "rec_version": components.get(component.get("uuid")),
-                "group": group,
-                "vulnerability": vuln_link,
-                "severity": vuln.get("severity") 
-            })
+        # add info about vulnerabilities to components
+        for vuln in vulnerabilities:
+            for component in vuln.get("affects"):
+                vuln_id = vuln.get("id")
+                vuln_word_link = RichText()
+                if vuln_id.lower().find("cve") != -1:
+                    vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
+                    vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+                elif vuln_id.lower().find("ghsa") != -1:
+                    vuln_link = "https://github.com/advisories/"+vuln_id
+                    vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+                else:
+                    vuln_link = vuln_id
+                    vuln_word_link = vuln_id
+                severity_level, severity = get_severity(list(x.get("severity")
+                                                             for x in vuln.get("ratings")))
+                components[component.get("ref")]["vulnerabilities"].append({
+                    "uuid": vuln.get("bom-ref"),
+                    "id": vuln_id,
+                    "link": vuln_link,
+                    "word_link": vuln_word_link,
+                    "severity": severity,
+                    "severity_level": severity_level
+                })
+        
+        # set severity to vulnerable components
+        for component in components:
+            vulns = components[component].get("vulnerabilities")
+            if vulns:
+                severity_level, severity = get_severity(list(x.get("severity") 
+                                                             for x in vulns))
+                components[component]["severity"] = severity
+                components[component]["severity_level"] = severity_level
+        vuln_components = {k: v for k, v in components.items() if v.get("vulnerabilities")}
+        vuln_components = list((dict(sorted(vuln_components.items(),
+                                      key=lambda item: item[1]["severity_level"],
+                                      reverse=True))).values())
 
-        # sort, filter vulnerabilities and components
-        uniq_vulns = sorted(list(map(dict, set(tuple(sorted(sub.items())) for sub in vulns))),
-                            key=lambda d: (d["component"], d["severity"], d["version"]))
-        vulns_severity = [i for i in uniq_vulns if i["severity"].lower() in severities]
-        vuln_component_temp1 = set()
-        vuln_component_temp2 = []
-        for dic in vulns_severity:
-            vuln_component_temp1.add(str(dic.get("component"))+", "+str(dic.get("version"))+", "+
-                                     str(dic.get("group"))+", "+str(dic.get("rec_version")))
-        for v in vuln_component_temp1:
-            i = v.split(", ")
-            vuln_component_temp2.append({
-                "component": i[0],
-                "version": i[1],
-                "group": i[2],
-                "rec_version": i[3]
-            })
-        vuln_components = sorted(list(map(dict, set(tuple(sorted(sub.items()))
-            for sub in vuln_component_temp2))), key=lambda d: (d["component"], d["version"]))
-
-        # render and save result in word and excel report
-        # word
+        # render and save result in word report
         doc.render({
-            "vuln": uniq_vulns,
-            "vuln_component": vuln_components,
-            "severities": ", ".join(severities),
-            "project": project_info
+            "project": project_info,
+            "components": vuln_components
         })
         doc.save("reports/result.docx")
-        # excel
+        
+        # render and save result in excel report
         ws1 = excel["General information"]
         ws1["D2"].value = project_name_str + " (version: " + project_info.get("version") + ")"
         ws1["D2"].hyperlink = url.split("api/v1/")[0]+"projects/"+project
         ws1["D3"] = project_info.get("componentsCount")
         ws1["D4"] = project_info.get("vulnsCount")
-        ws1["D5"] = project_info.get("lastBomImport")
-        ws1["D6"] = project_info.get("date")
-        ws2 = excel["Sheet2"]
-        ws2.title =  ",".join(s[:4] for s in severities) + " deps"
+        ws1["D5"] = project_info.get("vulnComponentsCount")
+        ws1["D6"] = project_info.get("lastBomImport")
+        ws1["D7"] = project_info.get("date")
+        ws2 = excel["Vulnerable dependencies"]
+        ws3 = excel["All issues"]
+        vuln_num = 0
         for num, component in enumerate(vuln_components):
             ws2.cell(row=num+2, column=1, value=num+1)
-            ws2.cell(row=num+2, column=2, value=component.get("component"))
+            ws2.cell(row=num+2, column=2, value=component.get("name"))
             ws2.cell(row=num+2, column=3, value=str(component.get("version")))
             ws2.cell(row=num+2, column=4, value=component.get("group"))
-            ws2.cell(row=num+2, column=5, value=str(component.get("rec_version")))
-        ws3 = excel["All issues"]
-        for num, vuln in enumerate(uniq_vulns):
-            ws3.cell(row=num+2, column=1, value=num+1)
-            ws3.cell(row=num+2, column=2, value=vuln.get("component"))
-            ws3.cell(row=num+2, column=3, value=str(vuln.get("version")))
-            ws3.cell(row=num+2, column=4, value=vuln.get("group"))
-            vuln_name = vuln.get("vulnerability")
-            if isinstance(vuln_name, RichText):
-                vuln_id = str(vuln_name).split('preserve">')[1].split('</w:t')[0]
-                ws3.cell(row=num+2, column=5, value=vuln_id)
-                if vuln_id.lower().find("cve") != -1:
-                    ws3.cell(row=num+2,
-                                column=5).hyperlink="https://nvd.nist.gov/vuln/detail/"+vuln_id
-                elif vuln_id.lower().find("ghsa") != -1:
-                    ws3.cell(row=num+2,
-                                column=5).hyperlink="https://github.com/advisories/"+vuln_id
-            else:
-                ws3.cell(row=num+2, column=5, value=str(vuln_name))
-            ws3.cell(row=num+2, column=6, value=vuln.get("severity").lower())
+            ws2.cell(row=num+2, column=5, value=str(component.get("severity")))
+            ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
+            for vuln in component.get("vulnerabilities"):
+                ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
+                ws3.cell(row=num+2+vuln_num, column=2, value=vuln.get("id"))
+                if isinstance(vuln.get("word_link"), RichText):
+                    ws3.cell(row=num+2+vuln_num, column=2).hyperlink=vuln.get("link")
+                ws3.cell(row=num+2+vuln_num, column=3, value=vuln.get("severity"))
+                ws3.cell(row=num+2+vuln_num, column=4, value=component.get("name"))
+                ws3.cell(row=num+2+vuln_num, column=5, value=component.get("version"))
+                vuln_num += 1
+            vuln_num -= 1
         excel.save("reports/result.xlsx")
+
+        # return
         return "%s %s (%s)" % (config.get("project")[0].split(" ")[0],
                                project_info.get("version"),
-                               datetime.now().strftime("%d.%m.%Y"))
+                               datetime.now().strftime("%d.%m.%Y")), components
     except (ValueError, ConnectionError) as e:
         return e
