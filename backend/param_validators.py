@@ -31,12 +31,3 @@ def check_project(project):
     if not project:
         raise ValueError("Project not set")
     return project
-
-def check_severities(severities):
-    """ Check existence severities and values inside """
-    if not severities:
-        raise ValueError("Severities not set")
-    for i in severities:
-        if i not in ["critical", "high", "medium", "low", "unassigned"]:
-            raise ValueError("Severities contain wrong value")
-    return severities
