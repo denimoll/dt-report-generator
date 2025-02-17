@@ -57,7 +57,7 @@ def get_report():
     report, components = create_report(data)
     with_graph = create_graph(components)
     if isinstance(report, str) and create_zip(with_graph):
-        return send_file("reports/reports.zip", as_attachment=True, download_name="%s.zip" % report)
+        return send_file("reports/reports.zip", as_attachment=True, download_name=f"{report}.zip")
     else:
         flash(str(report), "danger")
         return redirect(url_for("index"))
@@ -82,10 +82,10 @@ def create_graph(components):
     if graph:
         with open ("reports/graph.html", "w", encoding="utf-8") as f:
             f.write(
-                """<html>
+                f"""<html>
                 <head><link rel="stylesheet" href="resource://content-accessible/plaintext.css">
-                </head><body><pre>%s</pre></body>
-                </html>""" % graph)
+                </head><body><pre>{graph}</pre></body>
+                </html>""")
         return True
     else:
         return False

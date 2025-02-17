@@ -15,6 +15,7 @@ urllib3.disable_warnings()
 
 
 def get_severity(severities):
+    """ Get level and name of severity by list severities """
     severity = {
         "unknown": 0,
         "low": 1,
@@ -39,7 +40,7 @@ def create_report(config):
         url = check_format_url(config.get("url")[0])
         headers = check_token(config.get("token")[0], url)
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
-       
+
        # get common info about project
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
         text = json.loads(res.text)
@@ -62,7 +63,7 @@ def create_report(config):
                                     for x in json.loads(text.get("directDependencies")))
         else:
             direct_dependencies = []
-        
+
         # get sbom with info about vulnerabilities and dependencies of dependencies
         res = requests.get(url+"bom/cyclonedx/project/"+project
                            +"?format=json&variant=withVulnerabilities&download=true",
@@ -123,12 +124,12 @@ def create_report(config):
                     "severity": severity,
                     "severity_level": severity_level
                 })
-        
+
         # set severity to vulnerable components
-        for component in components:
-            vulns = components[component].get("vulnerabilities")
+        for component, value in components.items():
+            vulns = value.get("vulnerabilities")
             if vulns:
-                severity_level, severity = get_severity(list(x.get("severity") 
+                severity_level, severity = get_severity(list(x.get("severity")
                                                              for x in vulns))
                 components[component]["severity"] = severity
                 components[component]["severity_level"] = severity_level
@@ -143,7 +144,7 @@ def create_report(config):
             "components": vuln_components
         })
         doc.save("reports/result.docx")
-        
+
         # render and save result in excel report
         ws1 = excel["General information"]
         ws1["D2"].value = project_name_str + " (version: " + project_info.get("version") + ")"
@@ -176,8 +177,7 @@ def create_report(config):
         excel.save("reports/result.xlsx")
 
         # return
-        return "%s %s (%s)" % (config.get("project")[0].split(" ")[0],
-                               project_info.get("version"),
-                               datetime.now().strftime("%d.%m.%Y")), components
+        return f"{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
+        ({datetime.now().strftime('%d.%m.%Y')})", components
     except (ValueError, ConnectionError) as e:
         return e
