@@ -9,7 +9,7 @@ from flask import (Flask, flash, jsonify, redirect, render_template, request,
                    send_file, url_for)
 from flask_bootstrap import Bootstrap5
 
-from backend.dependencyGraph import get_graph
+from backend.dependency_graph import get_graph
 from backend.projects import get_projects
 from backend.reports import create_report
 from form import GetReportForm
@@ -54,10 +54,10 @@ def get_report():
     """ API Endpoint /reports/get_report """
     clear_tmp_files()
     data = request.form.to_dict(flat=False)
-    report = create_report(data)
-    with_graph = create_graph(data)
+    report, components = create_report(data)
+    with_graph = create_graph(components)
     if isinstance(report, str) and create_zip(with_graph):
-        return send_file("reports/reports.zip", as_attachment=True, download_name="%s.zip" % report)
+        return send_file("reports/reports.zip", as_attachment=True, download_name=f"{report}.zip")
     else:
         flash(str(report), "danger")
         return redirect(url_for("index"))
@@ -76,29 +76,28 @@ def get_all_projects():
 
 
 # GRAPH GROUP
-def create_graph(data):
+def create_graph(components):
     """ Additional function for create graph in backend """
-    graph = get_graph(data.get("url")[0], data.get("token")[0],
-                      data.get("project")[0].split("(")[1].split(")")[0])
+    graph = get_graph(components)
     if graph:
         with open ("reports/graph.html", "w", encoding="utf-8") as f:
             f.write(
-                """<html>
+                f"""<html>
                 <head><link rel="stylesheet" href="resource://content-accessible/plaintext.css">
-                </head><body><pre>%s</pre></body>
-                </html>""" % graph)
+                </head><body><pre>{graph}</pre></body>
+                </html>""")
         return True
     else:
         return False
 
-@app.route("/dependencyGraph/get_graph", methods=["POST"])
-def get_dependencyGraph():
-    """ API Endpoint /dependencyGraph/get_graph """
-    data = request.form.to_dict(flat=False)
-    if create_graph(data):
-        return render_template("reports/graph.html")
-    else:
-        return jsonify(graph=None), 404
+# @app.route("/dependencyGraph/get_graph", methods=["POST"])
+# def get_dependencyGraph():
+#     """ API Endpoint /dependencyGraph/get_graph """
+#     data = request.form.to_dict(flat=False)
+#     if create_graph(data):
+#         return render_template("reports/graph.html")
+#     else:
+#         return jsonify(graph=None), 404
 
 
 if __name__ == "__main__":
