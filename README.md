@@ -37,4 +37,4 @@ Planned functionality:
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
 - [ ] *Icon*. Create an icon for tool and add a favicon.
 - [ ] *Reports*. Add a text to docx when 0 vulns.
-- [ ] *Graph*. Manage deep of graph, 
+- [ ] *Graph*. Manage deep of graph.
