@@ -162,7 +162,11 @@ def create_report(config):
             ws2.cell(row=num+2, column=2, value=component.get("name"))
             ws2.cell(row=num+2, column=3, value=str(component.get("version")))
             ws2.cell(row=num+2, column=4, value=component.get("group"))
-            ws2.cell(row=num+2, column=5, value=str(component.get("severity")))
+            if component.get("is_direct_dependency"):
+                final_severity = f"{str(component.get('severity'))} in direct dependency"
+            else:
+                final_severity = str(component.get("severity"))
+            ws2.cell(row=num+2, column=5, value=final_severity)
             ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
             for vuln in component.get("vulnerabilities"):
                 ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
