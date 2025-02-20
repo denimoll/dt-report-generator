@@ -69,7 +69,7 @@ def create_report(config):
                            +"?format=json&variant=withVulnerabilities&download=true",
                            headers=headers, verify=False, timeout=10000)
         text = json.loads(res.text)
-        vulnerabilities = text.get("vulnerabilities")
+        vulnerabilities = text.get("vulnerabilities") or []
         deps_deps = {}
         for deps in text.get("dependencies"):
             deps_deps.update({
@@ -178,6 +178,9 @@ def create_report(config):
                 ws3.cell(row=num+2+vuln_num, column=5, value=component.get("version"))
                 vuln_num += 1
             vuln_num -= 1
+        if not vuln_components:
+            del excel["Vulnerable dependencies"]
+            del excel["All issues"]
         excel.save("reports/result.xlsx")
 
         # return
