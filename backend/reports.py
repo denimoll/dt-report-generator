@@ -69,7 +69,7 @@ def create_report(config):
                            +"?format=json&variant=withVulnerabilities&download=true",
                            headers=headers, verify=False, timeout=10000)
         text = json.loads(res.text)
-        vulnerabilities = text.get("vulnerabilities")
+        vulnerabilities = text.get("vulnerabilities") or []
         deps_deps = {}
         for deps in text.get("dependencies"):
             deps_deps.update({
@@ -162,7 +162,11 @@ def create_report(config):
             ws2.cell(row=num+2, column=2, value=component.get("name"))
             ws2.cell(row=num+2, column=3, value=str(component.get("version")))
             ws2.cell(row=num+2, column=4, value=component.get("group"))
-            ws2.cell(row=num+2, column=5, value=str(component.get("severity")))
+            if component.get("is_direct_dependency"):
+                final_severity = f"{str(component.get('severity'))} in direct dependency"
+            else:
+                final_severity = str(component.get("severity"))
+            ws2.cell(row=num+2, column=5, value=final_severity)
             ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
             for vuln in component.get("vulnerabilities"):
                 ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
@@ -174,6 +178,9 @@ def create_report(config):
                 ws3.cell(row=num+2+vuln_num, column=5, value=component.get("version"))
                 vuln_num += 1
             vuln_num -= 1
+        if not vuln_components:
+            del excel["Vulnerable dependencies"]
+            del excel["All issues"]
         excel.save("reports/result.xlsx")
 
         # return

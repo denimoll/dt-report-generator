@@ -1,4 +1,4 @@
-# dt-report-generator
+# dt-report-generator <img width="30" src="./static/icon.svg"/>
 ## Main information
 Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) и Excel (.xlsx) formats.\
 More information about tool and how to use it can be found in the article on [habr](https://habr.com/ru/articles/860536/) (rus).
@@ -29,12 +29,12 @@ Planned functionality:
 - [x] *Project search*. Simplify the search for projects via the provided link and token.
 - [x] *Dependency tree*. Export the tree with vulnerable components marked.
 - [x] *Release policy*. Create release rules and publish Docker images.
-- [ ] *Dashboards with overview information*. Visualize data in the form of various graphs for visual analysis.
-- [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
+- [x] *Reports*. Add a text to docx when 0 vulns.
+- [x] *Dashboards with overview information*. Visualize data in the form of various graphs for visual analysis.
+- [x] *Icon*. Create an icon for tool and add a favicon.
 - [ ] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
+- [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
 - [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
-- [ ] *Icon*. Create an icon for tool and add a favicon.
-- [ ] *Reports*. Add a text to docx when 0 vulns.
-- [ ] *Graph*. Manage deep of graph, 
+- [ ] *Graph*. Manage deep of graph.
