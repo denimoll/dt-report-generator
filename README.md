@@ -31,9 +31,9 @@ Planned functionality:
 - [x] *Release policy*. Create release rules and publish Docker images.
 - [x] *Reports*. Add a text to docx when 0 vulns.
 - [x] *Dashboards with overview information*. Visualize data in the form of various graphs for visual analysis.
-- [ ] *Icon*. Create an icon for tool and add a favicon.
-- [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
+- [x] *Icon*. Create an icon for tool and add a favicon.
 - [ ] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
+- [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
 - [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
