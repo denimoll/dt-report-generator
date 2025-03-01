@@ -39,13 +39,13 @@ def create_report(config):
         # read config and validate parameters
         url = check_format_url(config.get("url")[0])
         if not isinstance(url, str):
-            return url
+            raise url
         headers = check_token(config.get("token")[0], url)
         if not isinstance(headers, dict):
             raise headers
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
         if not isinstance(project, str):
-            return project
+            raise project
 
        # get common info about project
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
@@ -193,4 +193,4 @@ def create_report(config):
         return f"{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
         ({datetime.now().strftime('%d.%m.%Y')})", components
     except (ValueError, ConnectionError) as e:
-        return e
+        return e, []
