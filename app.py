@@ -4,7 +4,6 @@ import os
 import secrets
 import zipfile
 
-import requests
 from flask import (Flask, flash, jsonify, redirect, render_template, request,
                    send_file, url_for)
 from flask_bootstrap import Bootstrap5
