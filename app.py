@@ -55,7 +55,7 @@ def get_report():
     clear_tmp_files()
     data = request.form.to_dict(flat=False)
     report, components = create_report(data)
-    with_graph = create_graph(components)
+    with_graph = create_graph(components) if components else False
     if isinstance(report, str) and create_zip(with_graph):
         return send_file("reports/reports.zip", as_attachment=True, download_name=f"{report}.zip")
     else:
@@ -70,9 +70,9 @@ def get_all_projects():
     data = request.form.to_dict(flat=False)
     try:
         return get_projects(data.get("url")[0], data.get("token")[0])
-    except (ValueError, ConnectionError, requests.exceptions.ConnectionError):
-        flash("An internal error has occurred.", "danger")
-        return jsonify(error_msg="An internal error has occurred"), 400
+    except (ValueError, ConnectionError) as e:
+        flash(f"An internal error has occurred. {str(e)}", "danger")
+        return jsonify(error_msg=f"An internal error has occurred. {str(e)}"), 400
 
 
 # GRAPH GROUP
