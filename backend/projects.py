@@ -13,7 +13,11 @@ def get_projects(url, token):
     """ Return all projects from DT """
     # validate parameters
     url = check_format_url(url)
+    if not isinstance(url, str):
+        return url
     headers = check_token(token, url)
+    if not isinstance(headers, dict):
+        return headers
 
     # get projects
     res = requests.get(url+
