@@ -68,7 +68,9 @@ def get_all_projects():
     """ API Endpoint /projects/get_all """
     data = request.form.to_dict(flat=False)
     try:
-        return get_projects(data.get("url")[0], data.get("token")[0])
+        url = data.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
+        token = data.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
+        return get_projects(url, token)
     except (ValueError, ConnectionError) as e:
         flash(f"An internal error has occurred. {str(e)}", "danger")
         return jsonify(error_msg=f"An internal error has occurred. {str(e)}"), 400
@@ -89,17 +91,8 @@ def create_graph(components):
     else:
         return False
 
-# @app.route("/dependencyGraph/get_graph", methods=["POST"])
-# def get_dependencyGraph():
-#     """ API Endpoint /dependencyGraph/get_graph """
-#     data = request.form.to_dict(flat=False)
-#     if create_graph(data):
-#         return render_template("reports/graph.html")
-#     else:
-#         return jsonify(graph=None), 404
-
 
 if __name__ == "__main__":
-    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() in ["true", "1", "t"]
-    port = int(os.getenv("FLASK_PORT", "5000"))
+    debug_mode = os.getenv("DTRG_DEBUG", "False").lower() in ["true", "1", "t"]
+    port = int(os.getenv("DTRG_PORT", "5000"))
     app.run(host="0.0.0.0", port=port, debug=debug_mode)
