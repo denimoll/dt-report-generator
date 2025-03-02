@@ -24,7 +24,7 @@ docker run --name dtrg -d -p 5000:5000 ghcr.io/denimoll/dt-report-generator
     - Project - project ID (Object Identifier parameter in Project Details or identifier in the URL after ".../projects/")
 3. Click "Get report"
 4. Wait
-### Advanced usage
+## Advanced usage
 You can set environment variable. A couple of examples: \
 \
 №1. dtrg as a service
