@@ -1,6 +1,7 @@
 """ Module for tasks with reports """
 
 import json
+import os
 from datetime import datetime
 
 import requests
@@ -37,9 +38,17 @@ def create_report(config):
 
     try:
         # read config and validate parameters
-        url = check_format_url(config.get("url")[0])
-        headers = check_token(config.get("token")[0], url)
+        raw_url = config.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
+        url = check_format_url(raw_url)
+        if not isinstance(url, str):
+            raise url
+        token = config.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
+        headers = check_token(token, url)
+        if not isinstance(headers, dict):
+            raise headers
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
+        if not isinstance(project, str):
+            raise project
 
        # get common info about project
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
@@ -187,4 +196,4 @@ def create_report(config):
         return f"{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
         ({datetime.now().strftime('%d.%m.%Y')})", components
     except (ValueError, ConnectionError) as e:
-        return e
+        return e, []
