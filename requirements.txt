@@ -1,4 +1,4 @@
-Bootstrap_Flask==2.4.1
+Bootstrap_Flask==2.4.2
 docxtpl==0.19.1
 Flask==3.1.0
 Flask_Bootstrap==3.3.7.1
