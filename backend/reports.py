@@ -8,6 +8,7 @@ import requests
 import urllib3
 from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
+from openpyxl.styles import Alignment
 
 from backend.param_validators import check_format_url, check_project, check_token
 
@@ -19,6 +20,8 @@ def get_severity(severities):
     """ Get level and name of severity by list severities """
     severity = {
         "unknown": 0,
+        "undefined": 0,
+        "info": 0,
         "low": 1,
         "medium": 2,
         "high": 3,
@@ -41,11 +44,13 @@ def create_report(config):
         raw_url = config.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
         url = check_format_url(raw_url)
         if not isinstance(url, str):
-            raise url
+            # can be error from backend.param_validators
+            raise url # pylint: disable=raising-bad-type
         token = config.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
         headers = check_token(token, url)
         if not isinstance(headers, dict):
-            raise headers
+            # can be error from backend.param_validators
+            raise headers # pylint: disable=raising-bad-type
         project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
         if not isinstance(project, str):
             raise project
@@ -117,29 +122,48 @@ def create_report(config):
                 if vuln_id.lower().find("cve") != -1:
                     vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+                    cve_id = vuln_id
                 elif vuln_id.lower().find("ghsa") != -1:
                     vuln_link = "https://github.com/advisories/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+# https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
+                    cve_id = ""
                 else:
                     vuln_link = vuln_id
                     vuln_word_link = vuln_id
+                    cve_id = ""
                 severity_level, severity = get_severity(list(x.get("severity")
                                                              for x in vuln.get("ratings")))
+                cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
+                  verify=False, timeout=100).text) if os.getenv("CVEPAAS_URL") and cve_id else {}
+                add_info = []
+                if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
+                    links = cve_paas["Details"]["Links"]
+                    for link in links.get("POC"):
+                        add_info.append(link.get("url"))
+                    if links.get("Nuclei templates"):
+                        add_info.append(links["Nuclei templates"].get("template_url"))
                 components[component.get("ref")]["vulnerabilities"].append({
                     "uuid": vuln.get("bom-ref"),
                     "id": vuln_id,
                     "link": vuln_link,
                     "word_link": vuln_word_link,
                     "severity": severity,
-                    "severity_level": severity_level
+                    "severity_level": severity_level,
+                    "priority": cve_paas.get("Priority") or severity,
+                    "add_info": ", ".join(sorted(set(add_info)))
                 })
 
         # set severity to vulnerable components
         for component, value in components.items():
             vulns = value.get("vulnerabilities")
             if vulns:
-                severity_level, severity = get_severity(list(x.get("severity")
-                                                             for x in vulns))
+                if os.getenv("CVEPAAS_URL"):
+                    severity_level, severity = get_severity(list(x.get("priority").lower()
+                                                                 for x in vulns))
+                else:
+                    severity_level, severity = get_severity(list(x.get("severity")
+                                                                 for x in vulns))
                 components[component]["severity"] = severity
                 components[component]["severity_level"] = severity_level
         vuln_components = {k: v for k, v in components.items() if v.get("vulnerabilities")}
@@ -183,8 +207,11 @@ def create_report(config):
                 if isinstance(vuln.get("word_link"), RichText):
                     ws3.cell(row=num+2+vuln_num, column=2).hyperlink=vuln.get("link")
                 ws3.cell(row=num+2+vuln_num, column=3, value=vuln.get("severity"))
-                ws3.cell(row=num+2+vuln_num, column=4, value=component.get("name"))
-                ws3.cell(row=num+2+vuln_num, column=5, value=component.get("version"))
+                ws3.cell(row=num+2+vuln_num, column=4, value=vuln.get("priority").lower())
+                ws3.cell(row=num+2+vuln_num, column=5, value=component.get("name"))
+                ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
+                ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))
+                ws3.cell(row=num+2+vuln_num, column=7).alignment = Alignment(wrap_text=True)
                 vuln_num += 1
             vuln_num -= 1
         if not vuln_components:
@@ -193,7 +220,7 @@ def create_report(config):
         excel.save("reports/result.xlsx")
 
         # return
-        return f"{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
-        ({datetime.now().strftime('%d.%m.%Y')})", components
+        return f"""{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
+        ({datetime.now().strftime('%d.%m.%Y')})""", components
     except (ValueError, ConnectionError) as e:
         return e, []
