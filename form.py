@@ -1,14 +1,10 @@
 """ Forms """
 
-from flask_wtf import FlaskForm
 import os
-from wtforms import (
-    SelectField,
-    StringField,
-    PasswordField,
-    SubmitField,
-    validators,
-)
+
+from flask_wtf import FlaskForm
+from wtforms import (PasswordField, SelectField, StringField, SubmitField,
+                     validators)
 
 
 class GetReportForm(FlaskForm):
