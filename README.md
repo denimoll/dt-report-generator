@@ -32,7 +32,13 @@ You can set environment variable. A couple of examples: \
 export DTRG_URL="http://evil.com"
 export DTRG_TOKEN="some_special_token"
 ```
-№2. Custom port
+№2. Vulnerability prioritization or enrichment
+You must beside deploy [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) tool. For every CVE dtrg send request for enrich vulnerability and get priority for fix. \
+Important to know: this may slow down the final report preparation. Especially for large projects. But with repeated requests for the same vulnerability it will be faster.
+```
+export CVEPAAS_URL="http://evil.com"
+```
+№3. Custom port
 ```
 export DTRG_PORT=5252
 ```
@@ -46,6 +52,7 @@ All environment variables:
 * DTRG_TOKEN - DT API key
 * DTRG_PORT - dtrg port
 * DTRG_DEGUB - dtrg (Flask) debug mode
+* CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap
 Planned functionality:
 - [x] *Project search*. Simplify the search for projects via the provided link and token.
@@ -55,7 +62,7 @@ Planned functionality:
 - [x] *Dashboards with overview information*. Visualize data in the form of various graphs for visual analysis.
 - [x] *Icon*. Create an icon for tool and add a favicon.
 - [x] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
-- [ ] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
+- [x] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
 - [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
