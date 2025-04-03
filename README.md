@@ -63,7 +63,7 @@ Planned functionality:
 - [x] *Icon*. Create an icon for tool and add a favicon.
 - [x] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
 - [x] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
+- [x] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
 - [ ] *Optimization*. Add a Database for fast search.
-- [ ] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
-- [ ] *Graph*. Manage deep of graph.
+- [ ] *Graph*. Manage deep of graph and add info to report about graph_level.
