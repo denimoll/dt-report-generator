@@ -8,5 +8,5 @@ openpyxl==3.1.5
 PrettyPrintTree==2.0.1
 Requests==2.32.3
 urllib3==2.4.0
-validators==0.34.0
+validators==0.35.0
 WTForms==3.2.1
