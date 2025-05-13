@@ -1,7 +1,7 @@
 # dt-report-generator (dtrg) <img width="30" src="./static/icon.svg"/>
 ## Main information
 Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) и Excel (.xlsx) formats.\
-More information about tool and how to use it can be found in the article on [habr](https://habr.com/ru/articles/860536/) (rus).
+More information about tool and how to use it can be found in the articles on habr [1](https://habr.com/ru/articles/860536/), [2](https://habr.com/ru/articles/900276/) (rus).
 ## Getting started
 ### Installation and start
 №1. Python
