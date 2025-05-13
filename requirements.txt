@@ -1,5 +1,5 @@
 Bootstrap_Flask==2.5.0
-docxtpl==0.19.1
+docxtpl==0.20.0
 Flask==3.1.0
 Flask_Bootstrap==3.3.7.1
 flask_wtf==1.2.2
