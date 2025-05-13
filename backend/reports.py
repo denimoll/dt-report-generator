@@ -1,6 +1,7 @@
 """ Module for tasks with reports """
 
 import json
+import logging
 import os
 from datetime import datetime
 
@@ -13,6 +14,7 @@ from openpyxl.styles import Alignment
 from backend.param_validators import check_format_url, check_project, check_token
 
 urllib3.disable_warnings()
+logger = logging.getLogger(__name__)
 
 
 
@@ -33,6 +35,7 @@ def get_severity(severities):
 
 def create_report(config):
     """ Create report from DT """
+    logger.info("Report generation started")
     # variables
     doc = DocxTemplate("reports/draft.docx") # docx template
     excel = load_workbook("reports/draft.xlsx") # excel document
@@ -56,6 +59,7 @@ def create_report(config):
             raise project
 
        # get common info about project
+        logger.info("Fetching project metadata")
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
         text = json.loads(res.text)
         project_name = RichText()
@@ -72,6 +76,7 @@ def create_report(config):
             "vulnsCount": text.get("metrics").get("vulnerabilities"),
             "vulnComponentsCount": text.get("metrics").get("vulnerableComponents")
         })
+        logger.debug(f"Project info retrieved: {project_info}")
         if text.get("directDependencies"):
             direct_dependencies = list(x.get("uuid")
                                     for x in json.loads(text.get("directDependencies")))
@@ -79,6 +84,7 @@ def create_report(config):
             direct_dependencies = []
 
         # get sbom with info about vulnerabilities and dependencies of dependencies
+        logger.info("Fetching SBOM with vulnerabilities")
         res = requests.get(url+"bom/cyclonedx/project/"+project
                            +"?format=json&variant=withVulnerabilities&download=true",
                            headers=headers, verify=False, timeout=10000)
@@ -113,8 +119,10 @@ def create_report(config):
                     "graph_level": 0
                 }
             })
+        logger.info(f"{len(components)} components processed")
 
         # add info about vulnerabilities to components
+        logger.info("Processing component vulnerabilities")
         for vuln in vulnerabilities:
             for component in vuln.get("affects"):
                 vuln_id = vuln.get("id")
@@ -153,8 +161,10 @@ def create_report(config):
                     "priority": cve_paas.get("Priority") or severity,
                     "add_info": ", ".join(sorted(set(add_info)))
                 })
+        logger.info("Vulnerabilities assigned to components")
 
         # set severity to vulnerable components
+        logger.info("Computing final severity levels for components")
         for component, value in components.items():
             vulns = value.get("vulnerabilities")
             if vulns:
@@ -170,15 +180,19 @@ def create_report(config):
         vuln_components = list((dict(sorted(vuln_components.items(),
                                       key=lambda item: item[1]["severity_level"],
                                       reverse=True))).values())
+        logger.info(f"{len(vuln_components)} vulnerable components found")
 
         # render and save result in word report
+        logger.info("Generating Word report")
         doc.render({
             "project": project_info,
             "components": vuln_components
         })
         doc.save("reports/result.docx")
+        logger.info("Word report saved as reports/result.docx")
 
         # render and save result in excel report
+        logger.info("Generating Excel report")
         ws1 = excel["General information"]
         ws1["D2"].value = project_name_str + " (version: " + project_info.get("version") + ")"
         ws1["D2"].hyperlink = url.split("api/v1/")[0]+"projects/"+project
@@ -218,9 +232,11 @@ def create_report(config):
             del excel["Vulnerable dependencies"]
             del excel["All issues"]
         excel.save("reports/result.xlsx")
+        logger.info("Excel report saved as reports/result.xlsx")
 
         # return
         return f"""{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
         ({datetime.now().strftime('%d.%m.%Y')})""", components
     except (ValueError, ConnectionError) as e:
+        logger.error(f"Error while generating report: {e}")
         return e, []
