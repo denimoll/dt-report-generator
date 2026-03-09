@@ -22,7 +22,7 @@ def get_graph(components, depth=3):
     logger.debug(f"Generating graph with depth={depth}")
 
     # create Tree root
-    tree = Node("  Application  ")
+    tree = Node("Application")
 
     def update_direct_dependencies(dependencies, depth):
         """ Recursively expand all nested dependencies """
@@ -43,11 +43,14 @@ def get_graph(components, depth=3):
         """ Recursively add dependencies to the tree """
         for dependency in dependencies:
             if dependency.get("vulnerabilities"):
-                node_name = f"  [VULNERABLE] [{dependency.get('severity')}]  \n  "
-                node_name += f"{dependency.get('name')}@{dependency.get('version')}  \n  "
-                node_name += f"Last version {dependency.get('last_version')}  "
+                severity = dependency.get("severity")
+                node_name = (f'<span class="vuln vuln-{severity.lower()}">\
+[{severity} vuln] \
+{dependency.get("name")}@{dependency.get("version")} (last: {dependency.get("last_version")})\
+</span>')
             else:
-                node_name = f"  {dependency.get('name')}@{dependency.get('version')}  "
+                node_name = f'<span class="pkg">\
+{dependency.get("name")}@{dependency.get("version")}</span>'
 
             d = Node(node_name, parent=tree)
 

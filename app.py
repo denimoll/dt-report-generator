@@ -119,6 +119,29 @@ def create_graph(components):
             f.write(
                 f"""<html>
                 <head><link rel="stylesheet" href="resource://content-accessible/plaintext.css">
+                <style>
+                    pre {{
+                        line-height: 1.4;
+                    }}
+                    .pkg {{
+                    color: #333;
+                    }}
+                    .vuln {{
+                    font-weight: bold;
+                    }}
+                    .vuln-critical {{
+                    color: #b30000;
+                    }}
+                    .vuln-high {{
+                    color: #d9534f;
+                    }}
+                    .vuln-medium {{
+                    color: #f0ad4e;
+                    }}
+                    .vuln-low {{
+                    color: #5bc0de;
+                    }}
+                </style>
                 </head><body><pre>{graph}</pre></body>
                 </html>""")
         logger.info("Graph HTML saved successfully")
