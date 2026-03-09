@@ -5,7 +5,7 @@ Flask-WTF==1.2.2
 docxtpl==0.20.2
 openpyxl==3.1.5
 
-anytree==2.12.1
+anytree==2.13.0
 
 requests==2.32.5
 validators==0.35.0
