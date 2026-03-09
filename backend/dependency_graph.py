@@ -3,23 +3,9 @@
 import copy
 import logging
 
-from PrettyPrint import PrettyPrintTree
+from anytree import Node, RenderTree
 
 logger = logging.getLogger(__name__)
-
-
-class Tree:
-    """ Classic tree class """
-
-    def __init__(self, value):
-        """ Initialize a Tree node """
-        self.val = value
-        self.children = []
-
-    def add_child(self, child):
-        """ Add a child node to the current node """
-        self.children.append(child)
-        return child
 
 
 def get_graph(components, depth=3):
@@ -34,15 +20,9 @@ def get_graph(components, depth=3):
         A formatted string representation of the tree, or 0 if no dependencies found.
     """
     logger.debug(f"Generating graph with depth={depth}")
-    # create Pretty Tree
-    pt = PrettyPrintTree(
-        lambda x: x.children,
-        lambda x: x.val,
-        color='',
-        orientation=PrettyPrintTree.Horizontal,
-        return_instead_of_print=True
-    )
-    tree = Tree("  Application  ")
+
+    # create Tree root
+    tree = Node("  Application  ")
 
     def update_direct_dependencies(dependencies, depth):
         """ Recursively expand all nested dependencies """
@@ -68,17 +48,31 @@ def get_graph(components, depth=3):
                 node_name += f"Last version {dependency.get('last_version')}  "
             else:
                 node_name = f"  {dependency.get('name')}@{dependency.get('version')}  "
-            d = tree.add_child(Tree(node_name))
+
+            d = Node(node_name, parent=tree)
+
             d_dependencies = dependency.get("dependencies")
             if d_dependencies:
-                d = update_tree(d, d_dependencies)
+                update_tree(d, d_dependencies)
+
         return tree
 
     direct_dependencies = [v for v in components.values() if v.get("is_direct_dependency")]
+
     if not direct_dependencies:
         logger.info("No direct dependencies found")
         return 0
+
     logger.info(f"Found {len(direct_dependencies)} direct dependencies")
-    tree = update_tree(tree,
-        update_direct_dependencies(copy.deepcopy(direct_dependencies), depth-1))
-    return pt(tree)
+
+    tree = update_tree(
+        tree,
+        update_direct_dependencies(copy.deepcopy(direct_dependencies), depth-1)
+    )
+
+    # Render tree to string
+    lines = []
+    for pre, _, node in RenderTree(tree):
+        lines.append(f"{pre}{node.name}")
+
+    return "\n".join(lines)
