@@ -127,10 +127,23 @@ def create_graph(components):
 if __name__ == "__main__":
     debug_mode = os.getenv("DTRG_DEBUG", "False").lower() in ["true", "1", "t"]
     port = int(os.getenv("DTRG_PORT", "5000"))
+    host = os.getenv("DTRG_HOST", "0.0.0.0")
+    allow_remote_debug = os.getenv("DTRG_DEBUG_ALLOW_REMOTE", "False").lower() in [
+        "true", "1", "t"
+    ]
+
+    # Werkzeug debugger exposes a remote code execution path via the PIN
+    # console. Refuse to combine debug mode with a non-loopback bind unless
+    # operators explicitly opt in.
+    if debug_mode and host not in ("127.0.0.1", "localhost") and not allow_remote_debug:
+        raise SystemExit(
+            "DTRG_DEBUG=true is unsafe with a non-loopback DTRG_HOST. "
+            "Set DTRG_HOST=127.0.0.1 or DTRG_DEBUG_ALLOW_REMOTE=true to confirm."
+        )
 
     # Set logging level based on debug mode
     log_level = logging.DEBUG if debug_mode else logging.INFO
     logging.getLogger().setLevel(log_level)
-    logger.info(f"Starting app on port {port} with debug={debug_mode}")
+    logger.info(f"Starting app on {host}:{port} with debug={debug_mode}")
 
-    app.run(host="0.0.0.0", port=port, debug=debug_mode)
+    app.run(host=host, port=port, debug=debug_mode)
