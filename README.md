@@ -70,6 +70,11 @@ When use docker run container with this command:
 ```
 docker run --name dtrg -d -p $DTRG_PORT:5000 ghcr.io/denimoll/dt-report-generator
 ```
+№4. Show VEX-suppressed findings
+By default dtrg honours VEX: a finding marked in DT as `resolved`, `resolved_with_pedigree`, `false_positive` or `not_affected` is dropped from the report so it matches what the DT UI shows. Set the variable below to keep them in the output and see their analysis state in the `All issues` sheet.
+```
+export DTRG_INCLUDE_SUPPRESSED=true
+```
 
 All environment variables:
 * DTRG_URL - DT address
@@ -82,6 +87,7 @@ All environment variables:
 * DTRG_HTTP_TIMEOUT - timeout in seconds for outbound HTTP calls to DT and CVE-PaaS (default: 120)
 * DTRG_SECRET_KEY - Flask secret key. Set a stable value when running multiple workers or behind a reverse proxy so CSRF tokens stay valid across restarts. If unset, a random key is generated on each start.
 * DTRG_API_KEY - shared secret required on the /api/v1/* endpoints. When unset (default) those endpoints are open and only network controls protect them; when set, callers must present the same value in an `X-DTRG-Key` or `Authorization: Bearer ...` header.
+* DTRG_INCLUDE_SUPPRESSED - when `true`, vulnerabilities that DT considers suppressed via VEX (state `resolved` / `resolved_with_pedigree` / `false_positive` / `not_affected`) are still rendered in the report with their analysis state in the `All issues` sheet. Default `false`, which matches the DT UI.
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap
 Planned functionality:
@@ -94,6 +100,7 @@ Planned functionality:
 - [x] *Secure use as a service*. Add the ability to define trusted addresses (SSRF exclusion) or disable URL and token selection by setting default values.
 - [x] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
 - [x] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
+- [x] *VEX support*. Honour CycloneDX analysis state from DT so suppressed findings are dropped (or surfaced via DTRG_INCLUDE_SUPPRESSED) in the report.
 - [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
 - [ ] *Graph*. Manage deep of graph and add info to report about graph_level.
