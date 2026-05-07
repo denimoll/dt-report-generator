@@ -129,7 +129,15 @@ def create_report(config, output_dir):
 
         # add info about vulnerabilities to components
         logger.info("Processing component vulnerabilities")
+        suppressed_states = {"resolved", "resolved_with_pedigree",
+                             "false_positive", "not_affected"}
         for vuln in vulnerabilities:
+            analysis = vuln.get("analysis") or {}
+            analysis_state = (analysis.get("state") or "").lower()
+            analysis_justification = analysis.get("justification") or ""
+            analysis_response = ", ".join(analysis.get("response") or [])
+            analysis_detail = analysis.get("detail") or ""
+            is_suppressed = analysis_state in suppressed_states
             for component in vuln.get("affects"):
                 vuln_id = vuln.get("id")
                 vuln_word_link = RichText()
@@ -168,9 +176,31 @@ def create_report(config, output_dir):
                     "severity": severity,
                     "severity_level": severity_level,
                     "priority": cve_paas.get("Priority") or severity,
-                    "add_info": ", ".join(sorted(set(add_info)))
+                    "add_info": ", ".join(sorted(set(add_info))),
+                    "analysis_state": analysis_state,
+                    "analysis_justification": analysis_justification,
+                    "analysis_response": analysis_response,
+                    "analysis_detail": analysis_detail,
+                    "is_suppressed": is_suppressed,
                 })
         logger.info("Vulnerabilities assigned to components")
+
+        # honour VEX: drop suppressed vulnerabilities unless DTRG_INCLUDE_SUPPRESSED=true
+        include_suppressed = os.getenv("DTRG_INCLUDE_SUPPRESSED",
+                                       "false").lower() in ["true", "1", "t"]
+        suppressed_count = 0
+        for value in components.values():
+            kept = []
+            for vuln in value["vulnerabilities"]:
+                if vuln["is_suppressed"]:
+                    suppressed_count += 1
+                    if not include_suppressed:
+                        continue
+                kept.append(vuln)
+            value["vulnerabilities"] = kept
+        project_info["suppressedCount"] = suppressed_count
+        logger.info(f"VEX-suppressed vulnerabilities: {suppressed_count} "
+                    f"(included in report: {include_suppressed})")
 
         # set severity to vulnerable components
         logger.info("Computing final severity levels for components")
@@ -235,6 +265,7 @@ def create_report(config, output_dir):
                 ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
                 ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))
                 ws3.cell(row=num+2+vuln_num, column=7).alignment = Alignment(wrap_text=True)
+                ws3.cell(row=num+2+vuln_num, column=8, value=vuln.get("analysis_state") or "")
                 vuln_num += 1
             vuln_num -= 1
         if not vuln_components:
