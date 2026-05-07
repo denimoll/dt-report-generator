@@ -265,6 +265,7 @@ def create_report(config, output_dir):
                 ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
                 ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))
                 ws3.cell(row=num+2+vuln_num, column=7).alignment = Alignment(wrap_text=True)
+                ws3.cell(row=num+2+vuln_num, column=8, value=vuln.get("analysis_state") or "")
                 vuln_num += 1
             vuln_num -= 1
         if not vuln_components:
