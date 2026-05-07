@@ -129,7 +129,15 @@ def create_report(config, output_dir):
 
         # add info about vulnerabilities to components
         logger.info("Processing component vulnerabilities")
+        suppressed_states = {"resolved", "resolved_with_pedigree",
+                             "false_positive", "not_affected"}
         for vuln in vulnerabilities:
+            analysis = vuln.get("analysis") or {}
+            analysis_state = (analysis.get("state") or "").lower()
+            analysis_justification = analysis.get("justification") or ""
+            analysis_response = ", ".join(analysis.get("response") or [])
+            analysis_detail = analysis.get("detail") or ""
+            is_suppressed = analysis_state in suppressed_states
             for component in vuln.get("affects"):
                 vuln_id = vuln.get("id")
                 vuln_word_link = RichText()
@@ -168,7 +176,12 @@ def create_report(config, output_dir):
                     "severity": severity,
                     "severity_level": severity_level,
                     "priority": cve_paas.get("Priority") or severity,
-                    "add_info": ", ".join(sorted(set(add_info)))
+                    "add_info": ", ".join(sorted(set(add_info))),
+                    "analysis_state": analysis_state,
+                    "analysis_justification": analysis_justification,
+                    "analysis_response": analysis_response,
+                    "analysis_detail": analysis_detail,
+                    "is_suppressed": is_suppressed,
                 })
         logger.info("Vulnerabilities assigned to components")
 
