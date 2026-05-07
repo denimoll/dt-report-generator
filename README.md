@@ -72,3 +72,4 @@ Planned functionality:
 - [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
 - [ ] *Graph*. Manage deep of graph and add info to report about graph_level.
+- [ ] *Tests*. Add smoke/unit tests (validators, severity merge, graph traversal) so regressions are caught before release.
