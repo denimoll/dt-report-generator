@@ -1,12 +1,21 @@
 """ Module for validate and formatted parameters """
 import logging
+import os
 
 import requests
 import urllib3
 import validators
 
-urllib3.disable_warnings()
 logger = logging.getLogger(__name__)
+
+
+def verify_tls() -> bool:
+    """ Whether outbound HTTPS calls should verify the TLS certificate """
+    return os.getenv("DTRG_VERIFY_TLS", "true").lower() in ["true", "1", "t"]
+
+
+if not verify_tls():
+    urllib3.disable_warnings()
 
 
 def check_format_url(url: str) -> str:
@@ -29,7 +38,7 @@ def check_token(token: str, url: str) -> dict[str, str]:
         "X-Api-Key": token
     }
     try:
-        res = requests.get(url+"project", headers=headers, verify=False, timeout=100)
+        res = requests.get(url+"project", headers=headers, verify=verify_tls(), timeout=100)
         if res.status_code != 200:
             logger.warning(f"Connection failed. Status: {res.status_code}, Response: {res.text}")
             raise ConnectionError("Something wrong with connection. Check your parameters")

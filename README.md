@@ -52,6 +52,7 @@ All environment variables:
 * DTRG_TOKEN - DT API key
 * DTRG_PORT - dtrg port
 * DTRG_DEBUG - dtrg (Flask) debug mode
+* DTRG_VERIFY_TLS - verify TLS certificate of DT and CVE-PaaS (default: true; set to false only for self-signed test instances)
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap
 Planned functionality:
