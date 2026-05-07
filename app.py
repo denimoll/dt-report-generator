@@ -115,35 +115,9 @@ def create_graph(components):
     logger.info("Generating graph from components")
     graph = get_graph(components)
     if graph:
+        rendered = render_template("graph.html", graph=graph)
         with open("reports/graph.html", "w", encoding="utf-8") as f:
-            f.write(
-                f"""<html>
-                <head><link rel="stylesheet" href="resource://content-accessible/plaintext.css">
-                <style>
-                    pre {{
-                        line-height: 1.4;
-                    }}
-                    .pkg {{
-                    color: #333;
-                    }}
-                    .vuln {{
-                    font-weight: bold;
-                    }}
-                    .vuln-critical {{
-                    color: #b30000;
-                    }}
-                    .vuln-high {{
-                    color: #d9534f;
-                    }}
-                    .vuln-medium {{
-                    color: #f0ad4e;
-                    }}
-                    .vuln-low {{
-                    color: #5bc0de;
-                    }}
-                </style>
-                </head><body><pre>{graph}</pre></body>
-                </html>""")
+            f.write(rendered)
         logger.info("Graph HTML saved successfully")
         return True
     logger.warning("Graph data was empty; skipping HTML generation")
