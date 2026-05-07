@@ -1,11 +1,13 @@
 """ Main logic dependency track report generator """
 
+import hmac
 import logging
 import os
 import secrets
 import shutil
 import tempfile
 import zipfile
+from functools import wraps
 
 from flask import (
     Flask,
@@ -34,6 +36,30 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
+
+
+def _presented_api_key():
+    """ Pull the dtrg API key from X-DTRG-Key or Authorization: Bearer ... """
+    header = request.headers.get("X-DTRG-Key")
+    if header:
+        return header
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+    return ""
+
+def require_api_key(view):
+    """ Gate a route on DTRG_API_KEY when the env var is set """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        expected = os.getenv("DTRG_API_KEY") or ""
+        if expected:
+            presented = _presented_api_key()
+            if not presented or not hmac.compare_digest(presented, expected):
+                logger.warning("API call rejected: invalid or missing DTRG_API_KEY")
+                return jsonify(error="unauthorized"), 401
+        return view(*args, **kwargs)
+    return wrapper
 
 
 # INDEX PAGE
