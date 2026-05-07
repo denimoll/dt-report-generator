@@ -4,7 +4,7 @@ import logging
 
 import requests
 
-from backend.param_validators import check_format_url, check_token, verify_tls
+from backend.param_validators import check_format_url, check_token, http_timeout, verify_tls
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ def get_projects(url, token):
 
         # get projects
         res = requests.get(endpoint,
-            headers=headers, verify=verify_tls(), timeout=1000)
+            headers=headers, verify=verify_tls(), timeout=http_timeout())
         logger.debug(f"Successfully fetched projects, status code: {res.status_code}")
         return res.text
     except requests.RequestException as e:

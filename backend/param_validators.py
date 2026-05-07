@@ -14,6 +14,14 @@ def verify_tls() -> bool:
     return os.getenv("DTRG_VERIFY_TLS", "true").lower() in ["true", "1", "t"]
 
 
+def http_timeout() -> int:
+    """ Timeout in seconds for outbound HTTP calls to DT and CVE-PaaS """
+    try:
+        return int(os.getenv("DTRG_HTTP_TIMEOUT", "120"))
+    except ValueError:
+        return 120
+
+
 if not verify_tls():
     urllib3.disable_warnings()
 
@@ -38,7 +46,8 @@ def check_token(token: str, url: str) -> dict[str, str]:
         "X-Api-Key": token
     }
     try:
-        res = requests.get(url+"project", headers=headers, verify=verify_tls(), timeout=100)
+        res = requests.get(url+"project", headers=headers,
+                           verify=verify_tls(), timeout=http_timeout())
         if res.status_code != 200:
             logger.warning(f"Connection failed. Status: {res.status_code}, Response: {res.text}")
             raise ConnectionError("Something wrong with connection. Check your parameters")

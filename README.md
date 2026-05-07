@@ -55,6 +55,7 @@ All environment variables:
 * DTRG_DEBUG - dtrg (Flask) debug mode. Refuses to start when combined with a non-loopback DTRG_HOST unless DTRG_DEBUG_ALLOW_REMOTE=true is set, because the Werkzeug debugger can be used for remote code execution.
 * DTRG_DEBUG_ALLOW_REMOTE - explicit override that allows DTRG_DEBUG=true together with a non-loopback DTRG_HOST. Use only in trusted networks.
 * DTRG_VERIFY_TLS - verify TLS certificate of DT and CVE-PaaS (default: true; set to false only for self-signed test instances)
+* DTRG_HTTP_TIMEOUT - timeout in seconds for outbound HTTP calls to DT and CVE-PaaS (default: 120)
 * DTRG_SECRET_KEY - Flask secret key. Set a stable value when running multiple workers or behind a reverse proxy so CSRF tokens stay valid across restarts. If unset, a random key is generated on each start.
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap

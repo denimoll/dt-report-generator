@@ -11,7 +11,13 @@ from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
-from backend.param_validators import check_format_url, check_project, check_token, verify_tls
+from backend.param_validators import (
+    check_format_url,
+    check_project,
+    check_token,
+    http_timeout,
+    verify_tls,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +62,7 @@ def create_report(config):
        # get common info about project
         logger.info("Fetching project metadata")
         res = requests.get(url+"project/"+project, headers=headers,
-                           verify=verify_tls(), timeout=1000)
+                           verify=verify_tls(), timeout=http_timeout())
         res.raise_for_status()
         text = res.json()
         project_name = RichText()
@@ -85,7 +91,7 @@ def create_report(config):
         logger.info("Fetching SBOM with vulnerabilities")
         res = requests.get(url+"bom/cyclonedx/project/"+project
                            +"?format=json&variant=withVulnerabilities&download=true",
-                           headers=headers, verify=verify_tls(), timeout=10000)
+                           headers=headers, verify=verify_tls(), timeout=http_timeout())
         res.raise_for_status()
         text = res.json()
         vulnerabilities = text.get("vulnerabilities") or []
@@ -98,7 +104,7 @@ def create_report(config):
         # get components
         res = requests.get(url+"component/project/"+project+
             "?searchText=&pageSize=99999&pageNumber=1",
-            headers=headers, verify=verify_tls(), timeout=10000)
+            headers=headers, verify=verify_tls(), timeout=http_timeout())
         res.raise_for_status()
         for component in res.json():
             try:
@@ -145,7 +151,7 @@ def create_report(config):
                 severity_level, severity = get_severity(list(x.get("severity")
                                                              for x in vuln.get("ratings")))
                 cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
-                  verify=verify_tls(), timeout=100).text) \
+                  verify=verify_tls(), timeout=http_timeout()).text) \
                   if os.getenv("CVEPAAS_URL") and cve_id else {}
                 add_info = []
                 if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
