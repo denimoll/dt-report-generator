@@ -47,21 +47,13 @@ def create_report(config):
         # read config and validate parameters
         raw_url = config.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
         url = check_format_url(raw_url)
-        if not isinstance(url, str):
-            # can be error from backend.param_validators
-            raise url # pylint: disable=raising-bad-type
         token = config.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
         headers = check_token(token, url)
-        if not isinstance(headers, dict):
-            # can be error from backend.param_validators
-            raise headers # pylint: disable=raising-bad-type
         project_raw = config.get("project")[0]
         project_match = re.search(r"\(([^()]+)\)\s*$", project_raw)
         if not project_match:
             raise ValueError("Project value must end with (uuid)")
         project = check_project(project_match.group(1))
-        if not isinstance(project, str):
-            raise project
 
        # get common info about project
         logger.info("Fetching project metadata")
