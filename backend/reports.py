@@ -38,8 +38,8 @@ def get_severity(severities):
     return level, [key for key, val in severity.items() if val == level][0]
 
 
-def create_report(config):
-    """ Create report from DT """
+def create_report(config, output_dir):
+    """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
     # variables
     doc = DocxTemplate("reports/draft.docx") # docx template
@@ -49,15 +49,15 @@ def create_report(config):
 
     try:
         # read config and validate parameters
-        raw_url = config.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
+        raw_url = os.getenv("DTRG_URL") or (config.get("url") or [""])[0]
         url = check_format_url(raw_url)
-        token = config.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
+        token = os.getenv("DTRG_TOKEN") or (config.get("token") or [""])[0]
         headers = check_token(token, url)
-        project_raw = config.get("project")[0]
+        project_raw = (config.get("project") or [""])[0]
+        # form flow sends "name version (uuid)"; API flow sends a bare UUID
         project_match = re.search(r"\(([^()]+)\)\s*$", project_raw)
-        if not project_match:
-            raise ValueError("Project value must end with (uuid)")
-        project = check_project(project_match.group(1))
+        project_id = project_match.group(1) if project_match else project_raw.strip()
+        project = check_project(project_id)
 
        # get common info about project
         logger.info("Fetching project metadata")
@@ -197,8 +197,8 @@ def create_report(config):
             "project": project_info,
             "components": vuln_components
         })
-        doc.save("reports/result.docx")
-        logger.info("Word report saved as reports/result.docx")
+        doc.save(os.path.join(output_dir, "result.docx"))
+        logger.info("Word report saved")
 
         # render and save result in excel report
         logger.info("Generating Excel report")
@@ -240,12 +240,13 @@ def create_report(config):
         if not vuln_components:
             del excel["Vulnerable dependencies"]
             del excel["All issues"]
-        excel.save("reports/result.xlsx")
-        logger.info("Excel report saved as reports/result.xlsx")
+        excel.save(os.path.join(output_dir, "result.xlsx"))
+        logger.info("Excel report saved")
 
         # return
-        return f"""{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \
-        ({datetime.now().strftime('%d.%m.%Y')})""", components
+        report_name = project_name_str or project_id
+        return (f"{report_name} {project_info.get('version')} "
+                f"({datetime.now().strftime('%d.%m.%Y')})", components)
     except (ValueError, ConnectionError) as e:
         logger.error(f"Error while generating report: {e}")
         return e, []

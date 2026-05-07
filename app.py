@@ -1,12 +1,18 @@
 """ Main logic dependency track report generator """
 
+import hmac
 import logging
 import os
 import secrets
+import shutil
+import tempfile
 import zipfile
+from functools import wraps
 
 from flask import (
     Flask,
+    Response,
+    after_this_request,
     flash,
     jsonify,
     redirect,
@@ -33,6 +39,30 @@ app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
 
 
+def _presented_api_key():
+    """ Pull the dtrg API key from X-DTRG-Key or Authorization: Bearer ... """
+    header = request.headers.get("X-DTRG-Key")
+    if header:
+        return header
+    auth = request.headers.get("Authorization", "")
+    if auth.lower().startswith("bearer "):
+        return auth.split(" ", 1)[1].strip()
+    return ""
+
+def require_api_key(view):
+    """ Gate a route on DTRG_API_KEY when the env var is set """
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        expected = os.getenv("DTRG_API_KEY") or ""
+        if expected:
+            presented = _presented_api_key()
+            if not presented or not hmac.compare_digest(presented, expected):
+                logger.warning("API call rejected: invalid or missing DTRG_API_KEY")
+                return jsonify(error="unauthorized"), 401
+        return view(*args, **kwargs)
+    return wrapper
+
+
 # INDEX PAGE
 @app.route("/", methods=["GET"])
 def index():
@@ -42,55 +72,88 @@ def index():
 
 
 # REPORTS GROUP
-def clear_tmp_files():
-    """ Remove old files in reports directory """
-    logger.info("Clearing temporary files in 'reports/' directory")
-    for filename in os.listdir("reports/"):
-        if filename.split(".")[0] != "draft":
-            try:
-                os.remove(os.path.join("reports/", filename))
-                logger.debug(f"Removed file: {filename}")
-            except OSError as e:
-                logger.warning(f"Failed to remove file {filename}: {e}")
-                flash(str(e), "danger")
-
-def create_zip(with_graph=False):
-    """ Additional function for create final archive with all materials """
+def create_zip(output_dir, with_graph=False):
+    """ Bundle the rendered files inside output_dir into reports.zip """
     logger.info("Creating ZIP archive with report files")
+    zip_path = os.path.join(output_dir, "reports.zip")
     try:
-        with zipfile.ZipFile("reports/reports.zip", "w", zipfile.ZIP_DEFLATED) as zipf:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             for file in ["result.docx", "result.xlsx"]:
-                zipf.write(os.path.join("reports", file), arcname=file)
+                zipf.write(os.path.join(output_dir, file), arcname=file)
             if with_graph:
-                zipf.write("reports/graph.html", arcname="graph.html")
+                zipf.write(os.path.join(output_dir, "graph.html"), arcname="graph.html")
         logger.info("ZIP archive created successfully")
-        return True
+        return zip_path
     except OSError as e:
         logger.error(f"Error while creating ZIP: {e}")
         flash(str(e), "danger")
-        return False
+        return None
 
 def _redact(form_data):
     """ Drop secret-bearing fields from form data before logging """
     return {k: ("<redacted>" if k in {"token", "csrf_token"} else v)
             for k, v in form_data.items()}
 
+def _new_output_dir():
+    """ Create a unique output directory for a single report request """
+    return tempfile.mkdtemp(prefix="dtrg-")
+
+def _build_report(config, output_dir):
+    """ Run create_report + graph + zip and return (zip_path, name_or_error) """
+    report, components = create_report(config, output_dir)
+    if not isinstance(report, str):
+        return None, report
+    with_graph = create_graph(components, output_dir) if components else False
+    zip_path = create_zip(output_dir, with_graph)
+    if not zip_path:
+        return None, "Failed to build report archive"
+    return zip_path, report
+
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
     """ API Endpoint /reports/get_report """
     logger.info("Received request to generate report")
-    clear_tmp_files()
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
     data = request.form.to_dict(flat=False)
     logger.debug(f"Form data received: {_redact(data)}")
-    report, components = create_report(data)
-    with_graph = create_graph(components) if components else False
-    if isinstance(report, str) and create_zip(with_graph):
+    zip_path, report = _build_report(data, output_dir)
+    if zip_path:
         logger.info("Report generation successful. Sending ZIP file")
-        return send_file("reports/reports.zip", as_attachment=True, download_name=f"{report}.zip")
-    else:
-        logger.error(f"Report generation failed: {report}")
-        flash(str(report), "danger")
-        return redirect(url_for("index"))
+        return send_file(zip_path, as_attachment=True, download_name=f"{report}.zip")
+    logger.error(f"Report generation failed: {report}")
+    flash(str(report), "danger")
+    return redirect(url_for("index"))
+
+@app.route("/api/v1/reports/get_report", methods=["POST"])
+@require_api_key
+def get_report_api():
+    """ JSON-friendly entrypoint for CI: returns the ZIP directly """
+    logger.info("Received API request to generate report")
+    body = request.get_json(silent=True) or {}
+    if not body and request.form:
+        body = request.form.to_dict(flat=True)
+    config = {k: [str(body[k])] for k in ("url", "token", "project") if body.get(k)}
+    logger.debug(f"API report request: {_redact(config)}")
+
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
+    zip_path, report = _build_report(config, output_dir)
+    if not zip_path:
+        logger.error(f"API report generation failed: {report}")
+        return jsonify(error=str(report)), 400
+    return send_file(zip_path, as_attachment=True,
+                     download_name=f"{report}.zip", mimetype="application/zip")
 
 
 # PROJECTS GROUP
@@ -109,15 +172,32 @@ def get_all_projects():
         flash(f"An internal error has occurred. {str(e)}", "danger")
         return jsonify(error_msg=f"An internal error has occurred. {str(e)}"), 400
 
+@app.route("/api/v1/projects", methods=["POST"])
+@require_api_key
+def get_all_projects_api():
+    """ JSON-friendly entrypoint for CI: returns the DT project list """
+    body = request.get_json(silent=True) or {}
+    if not body and request.form:
+        body = request.form.to_dict(flat=True)
+    url = os.getenv("DTRG_URL") or body.get("url") or ""
+    token = os.getenv("DTRG_TOKEN") or body.get("token") or ""
+    if not url or not token:
+        return jsonify(error="url and token are required"), 400
+    logger.debug(f"API projects request for: {url}")
+    result = get_projects(url, token)
+    if isinstance(result, dict):
+        return jsonify(result), 502
+    return Response(result, mimetype="application/json")
+
 
 # GRAPH GROUP
-def create_graph(components):
-    """ Additional function for create graph in backend """
+def create_graph(components, output_dir):
+    """ Render the dependency graph HTML into output_dir """
     logger.info("Generating graph from components")
     graph = get_graph(components)
     if graph:
         rendered = render_template("graph.html", graph=graph)
-        with open("reports/graph.html", "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "graph.html"), "w", encoding="utf-8") as f:
             f.write(rendered)
         logger.info("Graph HTML saved successfully")
         return True

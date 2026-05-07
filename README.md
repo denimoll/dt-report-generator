@@ -24,6 +24,30 @@ docker run --name dtrg -d -p 5000:5000 ghcr.io/denimoll/dt-report-generator
     - Project - project ID (Object Identifier parameter in Project Details or identifier in the URL after ".../projects/")
 3. Click "Get report"
 4. Wait
+## CI usage
+For pipelines a JSON API is exposed alongside the form. It returns the same ZIP, but does not need a browser session and is suitable for `curl` from a build job.
+
+Generate a report:
+```
+curl -fSL -o report.zip \
+    -H "X-DTRG-Key: $DTRG_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"project":"<uuid>"}' \
+    http://dtrg.internal:5000/api/v1/reports/get_report
+```
+List projects to look up a UUID:
+```
+curl -fsSL \
+    -H "X-DTRG-Key: $DTRG_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{}' \
+    http://dtrg.internal:5000/api/v1/projects | jq '.[] | {name, version, uuid}'
+```
+Notes:
+- `url` and `token` can be omitted from the request body when `DTRG_URL` and `DTRG_TOKEN` are set in the dtrg environment.
+- The endpoints are open by default. When the service is reachable beyond a trusted network, set `DTRG_API_KEY` so requests must present the same key in the `X-DTRG-Key` (or `Authorization: Bearer ...`) header.
+- Errors come back as `{"error": "..."}` with a non-200 status, never as a redirect.
+
 ## Advanced usage
 You can set environment variable. A couple of examples: \
 \
@@ -57,6 +81,7 @@ All environment variables:
 * DTRG_VERIFY_TLS - verify TLS certificate of DT and CVE-PaaS (default: true; set to false only for self-signed test instances)
 * DTRG_HTTP_TIMEOUT - timeout in seconds for outbound HTTP calls to DT and CVE-PaaS (default: 120)
 * DTRG_SECRET_KEY - Flask secret key. Set a stable value when running multiple workers or behind a reverse proxy so CSRF tokens stay valid across restarts. If unset, a random key is generated on each start.
+* DTRG_API_KEY - shared secret required on the /api/v1/* endpoints. When unset (default) those endpoints are open and only network controls protect them; when set, callers must present the same value in an `X-DTRG-Key` or `Authorization: Bearer ...` header.
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap
 Planned functionality:
