@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 import requests
@@ -54,7 +55,11 @@ def create_report(config):
         if not isinstance(headers, dict):
             # can be error from backend.param_validators
             raise headers # pylint: disable=raising-bad-type
-        project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
+        project_raw = config.get("project")[0]
+        project_match = re.search(r"\(([^()]+)\)\s*$", project_raw)
+        if not project_match:
+            raise ValueError("Project value must end with (uuid)")
+        project = check_project(project_match.group(1))
         if not isinstance(project, str):
             raise project
 
