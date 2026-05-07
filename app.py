@@ -57,22 +57,18 @@ def clear_tmp_files():
 def create_zip(with_graph=False):
     """ Additional function for create final archive with all materials """
     logger.info("Creating ZIP archive with report files")
-    os.chdir("reports/")
     try:
-        zipf = zipfile.ZipFile("reports.zip", "w", zipfile.ZIP_DEFLATED)
-        for file in ["result.docx", "result.xlsx"]:
-            zipf.write(file)
-        if with_graph:
-            zipf.write("graph.html")
-        zipf.close()
+        with zipfile.ZipFile("reports/reports.zip", "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file in ["result.docx", "result.xlsx"]:
+                zipf.write(os.path.join("reports", file), arcname=file)
+            if with_graph:
+                zipf.write("reports/graph.html", arcname="graph.html")
         logger.info("ZIP archive created successfully")
         return True
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error while creating ZIP: {e}")
         flash(str(e), "danger")
         return False
-    finally:
-        os.chdir("..")
 
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
