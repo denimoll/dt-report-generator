@@ -29,7 +29,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = secrets.token_hex(16)
+app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
 
 
@@ -57,22 +57,23 @@ def clear_tmp_files():
 def create_zip(with_graph=False):
     """ Additional function for create final archive with all materials """
     logger.info("Creating ZIP archive with report files")
-    os.chdir("reports/")
     try:
-        zipf = zipfile.ZipFile("reports.zip", "w", zipfile.ZIP_DEFLATED)
-        for file in ["result.docx", "result.xlsx"]:
-            zipf.write(file)
-        if with_graph:
-            zipf.write("graph.html")
-        zipf.close()
+        with zipfile.ZipFile("reports/reports.zip", "w", zipfile.ZIP_DEFLATED) as zipf:
+            for file in ["result.docx", "result.xlsx"]:
+                zipf.write(os.path.join("reports", file), arcname=file)
+            if with_graph:
+                zipf.write("reports/graph.html", arcname="graph.html")
         logger.info("ZIP archive created successfully")
         return True
-    except Exception as e:
+    except OSError as e:
         logger.error(f"Error while creating ZIP: {e}")
         flash(str(e), "danger")
         return False
-    finally:
-        os.chdir("..")
+
+def _redact(form_data):
+    """ Drop secret-bearing fields from form data before logging """
+    return {k: ("<redacted>" if k in {"token", "csrf_token"} else v)
+            for k, v in form_data.items()}
 
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
@@ -80,7 +81,7 @@ def get_report():
     logger.info("Received request to generate report")
     clear_tmp_files()
     data = request.form.to_dict(flat=False)
-    logger.debug(f"Form data received: {data}")
+    logger.debug(f"Form data received: {_redact(data)}")
     report, components = create_report(data)
     with_graph = create_graph(components) if components else False
     if isinstance(report, str) and create_zip(with_graph):
@@ -115,35 +116,9 @@ def create_graph(components):
     logger.info("Generating graph from components")
     graph = get_graph(components)
     if graph:
-        with open ("reports/graph.html", "w", encoding="utf-8") as f:
-            f.write(
-                f"""<html>
-                <head><link rel="stylesheet" href="resource://content-accessible/plaintext.css">
-                <style>
-                    pre {{
-                        line-height: 1.4;
-                    }}
-                    .pkg {{
-                    color: #333;
-                    }}
-                    .vuln {{
-                    font-weight: bold;
-                    }}
-                    .vuln-critical {{
-                    color: #b30000;
-                    }}
-                    .vuln-high {{
-                    color: #d9534f;
-                    }}
-                    .vuln-medium {{
-                    color: #f0ad4e;
-                    }}
-                    .vuln-low {{
-                    color: #5bc0de;
-                    }}
-                </style>
-                </head><body><pre>{graph}</pre></body>
-                </html>""")
+        rendered = render_template("graph.html", graph=graph)
+        with open("reports/graph.html", "w", encoding="utf-8") as f:
+            f.write(rendered)
         logger.info("Graph HTML saved successfully")
         return True
     logger.warning("Graph data was empty; skipping HTML generation")
@@ -153,10 +128,23 @@ def create_graph(components):
 if __name__ == "__main__":
     debug_mode = os.getenv("DTRG_DEBUG", "False").lower() in ["true", "1", "t"]
     port = int(os.getenv("DTRG_PORT", "5000"))
+    host = os.getenv("DTRG_HOST", "0.0.0.0")
+    allow_remote_debug = os.getenv("DTRG_DEBUG_ALLOW_REMOTE", "False").lower() in [
+        "true", "1", "t"
+    ]
+
+    # Werkzeug debugger exposes a remote code execution path via the PIN
+    # console. Refuse to combine debug mode with a non-loopback bind unless
+    # operators explicitly opt in.
+    if debug_mode and host not in ("127.0.0.1", "localhost") and not allow_remote_debug:
+        raise SystemExit(
+            "DTRG_DEBUG=true is unsafe with a non-loopback DTRG_HOST. "
+            "Set DTRG_HOST=127.0.0.1 or DTRG_DEBUG_ALLOW_REMOTE=true to confirm."
+        )
 
     # Set logging level based on debug mode
     log_level = logging.DEBUG if debug_mode else logging.INFO
     logging.getLogger().setLevel(log_level)
-    logger.info(f"Starting app on port {port} with debug={debug_mode}")
+    logger.info(f"Starting app on {host}:{port} with debug={debug_mode}")
 
-    app.run(host="0.0.0.0", port=port, debug=debug_mode)
+    app.run(host=host, port=port, debug=debug_mode)

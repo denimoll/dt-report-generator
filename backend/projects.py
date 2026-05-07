@@ -3,11 +3,9 @@
 import logging
 
 import requests
-import urllib3
 
-from backend.param_validators import check_format_url, check_token
+from backend.param_validators import check_format_url, check_token, http_timeout, verify_tls
 
-urllib3.disable_warnings()
 logger = logging.getLogger(__name__)
 
 
@@ -18,21 +16,17 @@ def get_projects(url, token):
         
         # validate parameters
         url = check_format_url(url)
-        if not isinstance(url, str):
-            return url
         headers = check_token(token, url)
-        if not isinstance(headers, dict):
-            return headers
         
         endpoint = (
             f"{url}project?excludeInactive=true&onlyRoot=false&searchText=&"
             "sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1"
         )
-        logger.debug("Sending request to: {endpoint}")
+        logger.debug(f"Sending request to: {endpoint}")
 
         # get projects
         res = requests.get(endpoint,
-            headers=headers, verify=False, timeout=1000)
+            headers=headers, verify=verify_tls(), timeout=http_timeout())
         logger.debug(f"Successfully fetched projects, status code: {res.status_code}")
         return res.text
     except requests.RequestException as e:

@@ -24,18 +24,25 @@ def get_graph(components, depth=3):
     # create Tree root
     tree = Node("Application")
 
-    def update_direct_dependencies(dependencies, depth):
+    def update_direct_dependencies(dependencies, depth, visited=None):
         """ Recursively expand all nested dependencies """
         logger.debug(f"Expanding dependencies at depth={depth}")
+        if visited is None:
+            visited = set()
         deps_deps = []
         copy_dependencies = copy.deepcopy(dependencies)
 
         for num, dependency in enumerate(copy_dependencies):
-            for dep in dependency.get("dependencies"):
+            for dep in dependency.get("dependencies") or []:
+                if dep in visited:
+                    continue
+                visited.add(dep)
                 dep_value = copy.deepcopy(components.get(dep))
+                if dep_value is None:
+                    continue
                 deps_deps.append(dep_value)
                 dependencies[num]["dependencies"] = update_direct_dependencies(
-                    copy.deepcopy(deps_deps), depth-1) if depth and deps_deps else []
+                    copy.deepcopy(deps_deps), depth-1, visited) if depth and deps_deps else []
             deps_deps = []
         return dependencies
 

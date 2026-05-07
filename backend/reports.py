@@ -3,17 +3,22 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime
 
 import requests
-import urllib3
 from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
-from backend.param_validators import check_format_url, check_project, check_token
+from backend.param_validators import (
+    check_format_url,
+    check_project,
+    check_token,
+    http_timeout,
+    verify_tls,
+)
 
-urllib3.disable_warnings()
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +34,7 @@ def get_severity(severities):
         "high": 3,
         "critical": 4
     }
-    level = max(list(severity[x] for x in severities))
+    level = max(severity.get((x or "").lower(), 0) for x in severities)
     return level, [key for key, val in severity.items() if val == level][0]
 
 
@@ -46,35 +51,34 @@ def create_report(config):
         # read config and validate parameters
         raw_url = config.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
         url = check_format_url(raw_url)
-        if not isinstance(url, str):
-            # can be error from backend.param_validators
-            raise url # pylint: disable=raising-bad-type
         token = config.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
         headers = check_token(token, url)
-        if not isinstance(headers, dict):
-            # can be error from backend.param_validators
-            raise headers # pylint: disable=raising-bad-type
-        project = check_project(config.get("project")[0].split("(")[1].split(")")[0])
-        if not isinstance(project, str):
-            raise project
+        project_raw = config.get("project")[0]
+        project_match = re.search(r"\(([^()]+)\)\s*$", project_raw)
+        if not project_match:
+            raise ValueError("Project value must end with (uuid)")
+        project = check_project(project_match.group(1))
 
        # get common info about project
         logger.info("Fetching project metadata")
-        res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
-        text = json.loads(res.text)
+        res = requests.get(url+"project/"+project, headers=headers,
+                           verify=verify_tls(), timeout=http_timeout())
+        res.raise_for_status()
+        text = res.json()
         project_name = RichText()
         project_name_str = text.get("name")
         project_name.add(project_name_str,
             url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
+        metrics = text.get("metrics") or {}
         project_info.update({
             "name": project_name,
             "version": text.get("version") or "no version",
             "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
                                                     0)/1000).strftime("%d.%m.%Y %H:%M"),
             "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            "componentsCount": text.get("metrics").get("components"),
-            "vulnsCount": text.get("metrics").get("vulnerabilities"),
-            "vulnComponentsCount": text.get("metrics").get("vulnerableComponents")
+            "componentsCount": metrics.get("components"),
+            "vulnsCount": metrics.get("vulnerabilities"),
+            "vulnComponentsCount": metrics.get("vulnerableComponents")
         })
         logger.debug(f"Project info retrieved: {project_info}")
         if text.get("directDependencies"):
@@ -87,11 +91,12 @@ def create_report(config):
         logger.info("Fetching SBOM with vulnerabilities")
         res = requests.get(url+"bom/cyclonedx/project/"+project
                            +"?format=json&variant=withVulnerabilities&download=true",
-                           headers=headers, verify=False, timeout=10000)
-        text = json.loads(res.text)
+                           headers=headers, verify=verify_tls(), timeout=http_timeout())
+        res.raise_for_status()
+        text = res.json()
         vulnerabilities = text.get("vulnerabilities") or []
         deps_deps = {}
-        for deps in text.get("dependencies"):
+        for deps in text.get("dependencies") or []:
             deps_deps.update({
                 deps.get("ref"):deps.get("dependsOn")
             })
@@ -99,8 +104,9 @@ def create_report(config):
         # get components
         res = requests.get(url+"component/project/"+project+
             "?searchText=&pageSize=99999&pageNumber=1",
-            headers=headers, verify=False, timeout=10000)
-        for component in json.loads(res.text):
+            headers=headers, verify=verify_tls(), timeout=http_timeout())
+        res.raise_for_status()
+        for component in res.json():
             try:
                 last_version = component.get("repositoryMeta").get("latestVersion")
             except AttributeError:
@@ -127,11 +133,13 @@ def create_report(config):
             for component in vuln.get("affects"):
                 vuln_id = vuln.get("id")
                 vuln_word_link = RichText()
-                if vuln_id.lower().find("cve") != -1:
+                if "cve" in vuln_id.lower():
                     vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
-                    cve_id = vuln_id
-                elif vuln_id.lower().find("ghsa") != -1:
+                    # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
+                    cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
+                                                     vuln_id, re.IGNORECASE) else ""
+                elif "ghsa" in vuln_id.lower():
                     vuln_link = "https://github.com/advisories/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
 # https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
@@ -143,7 +151,8 @@ def create_report(config):
                 severity_level, severity = get_severity(list(x.get("severity")
                                                              for x in vuln.get("ratings")))
                 cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
-                  verify=False, timeout=100).text) if os.getenv("CVEPAAS_URL") and cve_id else {}
+                  verify=verify_tls(), timeout=http_timeout()).text) \
+                  if os.getenv("CVEPAAS_URL") and cve_id else {}
                 add_info = []
                 if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
                     links = cve_paas["Details"]["Links"]
@@ -221,7 +230,7 @@ def create_report(config):
                 if isinstance(vuln.get("word_link"), RichText):
                     ws3.cell(row=num+2+vuln_num, column=2).hyperlink=vuln.get("link")
                 ws3.cell(row=num+2+vuln_num, column=3, value=vuln.get("severity"))
-                ws3.cell(row=num+2+vuln_num, column=4, value=vuln.get("priority").lower())
+                ws3.cell(row=num+2+vuln_num, column=4, value=(vuln.get("priority") or "").lower())
                 ws3.cell(row=num+2+vuln_num, column=5, value=component.get("name"))
                 ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
                 ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))

@@ -1,6 +1,6 @@
 # dt-report-generator (dtrg) <img width="30" src="./static/icon.svg"/>
 ## Main information
-Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) и Excel (.xlsx) formats.\
+Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) and Excel (.xlsx) formats.\
 More information about tool and how to use it can be found in the articles on habr [1](https://habr.com/ru/articles/860536/), [2](https://habr.com/ru/articles/900276/) (rus).
 ## Getting started
 ### Installation and start
@@ -51,7 +51,12 @@ All environment variables:
 * DTRG_URL - DT address
 * DTRG_TOKEN - DT API key
 * DTRG_PORT - dtrg port
-* DTRG_DEGUB - dtrg (Flask) debug mode
+* DTRG_HOST - bind address (default: 0.0.0.0)
+* DTRG_DEBUG - dtrg (Flask) debug mode. Refuses to start when combined with a non-loopback DTRG_HOST unless DTRG_DEBUG_ALLOW_REMOTE=true is set, because the Werkzeug debugger can be used for remote code execution.
+* DTRG_DEBUG_ALLOW_REMOTE - explicit override that allows DTRG_DEBUG=true together with a non-loopback DTRG_HOST. Use only in trusted networks.
+* DTRG_VERIFY_TLS - verify TLS certificate of DT and CVE-PaaS (default: true; set to false only for self-signed test instances)
+* DTRG_HTTP_TIMEOUT - timeout in seconds for outbound HTTP calls to DT and CVE-PaaS (default: 120)
+* DTRG_SECRET_KEY - Flask secret key. Set a stable value when running multiple workers or behind a reverse proxy so CSRF tokens stay valid across restarts. If unset, a random key is generated on each start.
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap
 Planned functionality:
@@ -67,3 +72,4 @@ Planned functionality:
 - [ ] *Optimization*. Add a Database for fast search.
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
 - [ ] *Graph*. Manage deep of graph and add info to report about graph_level.
+- [ ] *Tests*. Add smoke/unit tests (validators, severity merge, graph traversal) so regressions are caught before release.

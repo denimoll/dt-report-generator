@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+.dockerignore
+.DS_Store
+__pycache__
+*.pyc
+test/
+reports/result*
+reports/graph.html
+reports/reports.zip
+LICENSE.md
+SECURITY.md
+README.md
