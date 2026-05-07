@@ -185,6 +185,23 @@ def create_report(config, output_dir):
                 })
         logger.info("Vulnerabilities assigned to components")
 
+        # honour VEX: drop suppressed vulnerabilities unless DTRG_INCLUDE_SUPPRESSED=true
+        include_suppressed = os.getenv("DTRG_INCLUDE_SUPPRESSED",
+                                       "false").lower() in ["true", "1", "t"]
+        suppressed_count = 0
+        for value in components.values():
+            kept = []
+            for vuln in value["vulnerabilities"]:
+                if vuln["is_suppressed"]:
+                    suppressed_count += 1
+                    if not include_suppressed:
+                        continue
+                kept.append(vuln)
+            value["vulnerabilities"] = kept
+        project_info["suppressedCount"] = suppressed_count
+        logger.info(f"VEX-suppressed vulnerabilities: {suppressed_count} "
+                    f"(included in report: {include_suppressed})")
+
         # set severity to vulnerable components
         logger.info("Computing final severity levels for components")
         for component, value in components.items():
