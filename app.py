@@ -97,6 +97,17 @@ def _new_output_dir():
     """ Create a unique output directory for a single report request """
     return tempfile.mkdtemp(prefix="dtrg-")
 
+def _build_report(config, output_dir):
+    """ Run create_report + graph + zip and return (zip_path, name_or_error) """
+    report, components = create_report(config, output_dir)
+    if not isinstance(report, str):
+        return None, report
+    with_graph = create_graph(components, output_dir) if components else False
+    zip_path = create_zip(output_dir, with_graph)
+    if not zip_path:
+        return None, "Failed to build report archive"
+    return zip_path, report
+
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
     """ API Endpoint /reports/get_report """
@@ -110,15 +121,38 @@ def get_report():
 
     data = request.form.to_dict(flat=False)
     logger.debug(f"Form data received: {_redact(data)}")
-    report, components = create_report(data, output_dir)
-    with_graph = create_graph(components, output_dir) if components else False
-    zip_path = create_zip(output_dir, with_graph) if isinstance(report, str) else None
+    zip_path, report = _build_report(data, output_dir)
     if zip_path:
         logger.info("Report generation successful. Sending ZIP file")
         return send_file(zip_path, as_attachment=True, download_name=f"{report}.zip")
     logger.error(f"Report generation failed: {report}")
     flash(str(report), "danger")
     return redirect(url_for("index"))
+
+@app.route("/api/v1/reports/get_report", methods=["POST"])
+@require_api_key
+def get_report_api():
+    """ JSON-friendly entrypoint for CI: returns the ZIP directly """
+    logger.info("Received API request to generate report")
+    body = request.get_json(silent=True) or {}
+    if not body and request.form:
+        body = request.form.to_dict(flat=True)
+    config = {k: [str(body[k])] for k in ("url", "token", "project") if body.get(k)}
+    logger.debug(f"API report request: {_redact(config)}")
+
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
+    zip_path, report = _build_report(config, output_dir)
+    if not zip_path:
+        logger.error(f"API report generation failed: {report}")
+        return jsonify(error=str(report)), 400
+    return send_file(zip_path, as_attachment=True,
+                     download_name=f"{report}.zip", mimetype="application/zip")
 
 
 # PROJECTS GROUP
