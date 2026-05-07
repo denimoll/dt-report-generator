@@ -38,8 +38,8 @@ def get_severity(severities):
     return level, [key for key, val in severity.items() if val == level][0]
 
 
-def create_report(config):
-    """ Create report from DT """
+def create_report(config, output_dir):
+    """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
     # variables
     doc = DocxTemplate("reports/draft.docx") # docx template
@@ -197,8 +197,8 @@ def create_report(config):
             "project": project_info,
             "components": vuln_components
         })
-        doc.save("reports/result.docx")
-        logger.info("Word report saved as reports/result.docx")
+        doc.save(os.path.join(output_dir, "result.docx"))
+        logger.info("Word report saved")
 
         # render and save result in excel report
         logger.info("Generating Excel report")
@@ -240,8 +240,8 @@ def create_report(config):
         if not vuln_components:
             del excel["Vulnerable dependencies"]
             del excel["All issues"]
-        excel.save("reports/result.xlsx")
-        logger.info("Excel report saved as reports/result.xlsx")
+        excel.save(os.path.join(output_dir, "result.xlsx"))
+        logger.info("Excel report saved")
 
         # return
         return f"""{config.get('project')[0].split(' ')[0]} {project_info.get('version')} \

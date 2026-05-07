@@ -3,10 +3,13 @@
 import logging
 import os
 import secrets
+import shutil
+import tempfile
 import zipfile
 
 from flask import (
     Flask,
+    after_this_request,
     flash,
     jsonify,
     redirect,
@@ -42,55 +45,54 @@ def index():
 
 
 # REPORTS GROUP
-def clear_tmp_files():
-    """ Remove old files in reports directory """
-    logger.info("Clearing temporary files in 'reports/' directory")
-    for filename in os.listdir("reports/"):
-        if filename.split(".")[0] != "draft":
-            try:
-                os.remove(os.path.join("reports/", filename))
-                logger.debug(f"Removed file: {filename}")
-            except OSError as e:
-                logger.warning(f"Failed to remove file {filename}: {e}")
-                flash(str(e), "danger")
-
-def create_zip(with_graph=False):
-    """ Additional function for create final archive with all materials """
+def create_zip(output_dir, with_graph=False):
+    """ Bundle the rendered files inside output_dir into reports.zip """
     logger.info("Creating ZIP archive with report files")
+    zip_path = os.path.join(output_dir, "reports.zip")
     try:
-        with zipfile.ZipFile("reports/reports.zip", "w", zipfile.ZIP_DEFLATED) as zipf:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
             for file in ["result.docx", "result.xlsx"]:
-                zipf.write(os.path.join("reports", file), arcname=file)
+                zipf.write(os.path.join(output_dir, file), arcname=file)
             if with_graph:
-                zipf.write("reports/graph.html", arcname="graph.html")
+                zipf.write(os.path.join(output_dir, "graph.html"), arcname="graph.html")
         logger.info("ZIP archive created successfully")
-        return True
+        return zip_path
     except OSError as e:
         logger.error(f"Error while creating ZIP: {e}")
         flash(str(e), "danger")
-        return False
+        return None
 
 def _redact(form_data):
     """ Drop secret-bearing fields from form data before logging """
     return {k: ("<redacted>" if k in {"token", "csrf_token"} else v)
             for k, v in form_data.items()}
 
+def _new_output_dir():
+    """ Create a unique output directory for a single report request """
+    return tempfile.mkdtemp(prefix="dtrg-")
+
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
     """ API Endpoint /reports/get_report """
     logger.info("Received request to generate report")
-    clear_tmp_files()
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
     data = request.form.to_dict(flat=False)
     logger.debug(f"Form data received: {_redact(data)}")
-    report, components = create_report(data)
-    with_graph = create_graph(components) if components else False
-    if isinstance(report, str) and create_zip(with_graph):
+    report, components = create_report(data, output_dir)
+    with_graph = create_graph(components, output_dir) if components else False
+    zip_path = create_zip(output_dir, with_graph) if isinstance(report, str) else None
+    if zip_path:
         logger.info("Report generation successful. Sending ZIP file")
-        return send_file("reports/reports.zip", as_attachment=True, download_name=f"{report}.zip")
-    else:
-        logger.error(f"Report generation failed: {report}")
-        flash(str(report), "danger")
-        return redirect(url_for("index"))
+        return send_file(zip_path, as_attachment=True, download_name=f"{report}.zip")
+    logger.error(f"Report generation failed: {report}")
+    flash(str(report), "danger")
+    return redirect(url_for("index"))
 
 
 # PROJECTS GROUP
@@ -111,13 +113,13 @@ def get_all_projects():
 
 
 # GRAPH GROUP
-def create_graph(components):
-    """ Additional function for create graph in backend """
+def create_graph(components, output_dir):
+    """ Render the dependency graph HTML into output_dir """
     logger.info("Generating graph from components")
     graph = get_graph(components)
     if graph:
         rendered = render_template("graph.html", graph=graph)
-        with open("reports/graph.html", "w", encoding="utf-8") as f:
+        with open(os.path.join(output_dir, "graph.html"), "w", encoding="utf-8") as f:
             f.write(rendered)
         logger.info("Graph HTML saved successfully")
         return True

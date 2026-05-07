@@ -1,7 +1,4 @@
-reports/result*
 __pycache__
 test/
 .DS_Store
-reports/graph.html
-reports/reports.zip
 autoupdate_version.sh
