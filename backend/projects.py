@@ -28,7 +28,7 @@ def get_projects(url, token):
             f"{url}project?excludeInactive=true&onlyRoot=false&searchText=&"
             "sortName=lastBomImport&sortOrder=desc&pageSize=99999&pageNumber=1"
         )
-        logger.debug("Sending request to: {endpoint}")
+        logger.debug(f"Sending request to: {endpoint}")
 
         # get projects
         res = requests.get(endpoint,

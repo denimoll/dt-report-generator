@@ -41,7 +41,7 @@ def check_token(token: str, url: str) -> dict[str, str]:
 
 def check_project(project: str) -> str:
     """ Check existence project """
-    logger.debug("Validating project: {project}")
+    logger.debug(f"Validating project: {project}")
     if not project:
         logger.error("Project not set")
         raise ValueError("Project not set")
