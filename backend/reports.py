@@ -66,15 +66,16 @@ def create_report(config):
         project_name_str = text.get("name")
         project_name.add(project_name_str,
             url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
+        metrics = text.get("metrics") or {}
         project_info.update({
             "name": project_name,
             "version": text.get("version") or "no version",
             "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
                                                     0)/1000).strftime("%d.%m.%Y %H:%M"),
             "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            "componentsCount": text.get("metrics").get("components"),
-            "vulnsCount": text.get("metrics").get("vulnerabilities"),
-            "vulnComponentsCount": text.get("metrics").get("vulnerableComponents")
+            "componentsCount": metrics.get("components"),
+            "vulnsCount": metrics.get("vulnerabilities"),
+            "vulnComponentsCount": metrics.get("vulnerableComponents")
         })
         logger.debug(f"Project info retrieved: {project_info}")
         if text.get("directDependencies"):
@@ -91,7 +92,7 @@ def create_report(config):
         text = json.loads(res.text)
         vulnerabilities = text.get("vulnerabilities") or []
         deps_deps = {}
-        for deps in text.get("dependencies"):
+        for deps in text.get("dependencies") or []:
             deps_deps.update({
                 deps.get("ref"):deps.get("dependsOn")
             })
@@ -221,7 +222,7 @@ def create_report(config):
                 if isinstance(vuln.get("word_link"), RichText):
                     ws3.cell(row=num+2+vuln_num, column=2).hyperlink=vuln.get("link")
                 ws3.cell(row=num+2+vuln_num, column=3, value=vuln.get("severity"))
-                ws3.cell(row=num+2+vuln_num, column=4, value=vuln.get("priority").lower())
+                ws3.cell(row=num+2+vuln_num, column=4, value=(vuln.get("priority") or "").lower())
                 ws3.cell(row=num+2+vuln_num, column=5, value=component.get("name"))
                 ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
                 ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))
