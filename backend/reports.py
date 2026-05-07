@@ -29,7 +29,7 @@ def get_severity(severities):
         "high": 3,
         "critical": 4
     }
-    level = max(list(severity[x] for x in severities))
+    level = max(severity.get((x or "").lower(), 0) for x in severities)
     return level, [key for key, val in severity.items() if val == level][0]
 
 
