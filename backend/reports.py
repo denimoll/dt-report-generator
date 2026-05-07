@@ -130,7 +130,9 @@ def create_report(config):
                 if "cve" in vuln_id.lower():
                     vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
-                    cve_id = vuln_id
+                    # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
+                    cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
+                                                     vuln_id, re.IGNORECASE) else ""
                 elif "ghsa" in vuln_id.lower():
                     vuln_link = "https://github.com/advisories/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
