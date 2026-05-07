@@ -128,11 +128,11 @@ def create_report(config):
             for component in vuln.get("affects"):
                 vuln_id = vuln.get("id")
                 vuln_word_link = RichText()
-                if vuln_id.lower().find("cve") != -1:
+                if "cve" in vuln_id.lower():
                     vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
                     cve_id = vuln_id
-                elif vuln_id.lower().find("ghsa") != -1:
+                elif "ghsa" in vuln_id.lower():
                     vuln_link = "https://github.com/advisories/"+vuln_id
                     vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
 # https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
