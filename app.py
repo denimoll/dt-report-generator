@@ -115,7 +115,7 @@ def create_graph(components):
     logger.info("Generating graph from components")
     graph = get_graph(components)
     if graph:
-        with open ("reports/graph.html", "w", encoding="utf-8") as f:
+        with open("reports/graph.html", "w", encoding="utf-8") as f:
             f.write(
                 f"""<html>
                 <head><link rel="stylesheet" href="resource://content-accessible/plaintext.css">
