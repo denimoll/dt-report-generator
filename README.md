@@ -1,6 +1,6 @@
 # dt-report-generator (dtrg) <img width="30" src="./static/icon.svg"/>
 ## Main information
-Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) и Excel (.xlsx) formats.\
+Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) and Excel (.xlsx) formats.\
 More information about tool and how to use it can be found in the articles on habr [1](https://habr.com/ru/articles/860536/), [2](https://habr.com/ru/articles/900276/) (rus).
 ## Getting started
 ### Installation and start
@@ -51,7 +51,7 @@ All environment variables:
 * DTRG_URL - DT address
 * DTRG_TOKEN - DT API key
 * DTRG_PORT - dtrg port
-* DTRG_DEGUB - dtrg (Flask) debug mode
+* DTRG_DEBUG - dtrg (Flask) debug mode
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
 ## Roadmap
 Planned functionality:
