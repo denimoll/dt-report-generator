@@ -70,13 +70,18 @@ def create_zip(with_graph=False):
         flash(str(e), "danger")
         return False
 
+def _redact(form_data):
+    """ Drop secret-bearing fields from form data before logging """
+    return {k: ("<redacted>" if k in {"token", "csrf_token"} else v)
+            for k, v in form_data.items()}
+
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
     """ API Endpoint /reports/get_report """
     logger.info("Received request to generate report")
     clear_tmp_files()
     data = request.form.to_dict(flat=False)
-    logger.debug(f"Form data received: {data}")
+    logger.debug(f"Form data received: {_redact(data)}")
     report, components = create_report(data)
     with_graph = create_graph(components) if components else False
     if isinstance(report, str) and create_zip(with_graph):
