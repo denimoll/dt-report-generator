@@ -66,7 +66,8 @@ def create_report(config):
        # get common info about project
         logger.info("Fetching project metadata")
         res = requests.get(url+"project/"+project, headers=headers, verify=False, timeout=1000)
-        text = json.loads(res.text)
+        res.raise_for_status()
+        text = res.json()
         project_name = RichText()
         project_name_str = text.get("name")
         project_name.add(project_name_str,
@@ -94,7 +95,8 @@ def create_report(config):
         res = requests.get(url+"bom/cyclonedx/project/"+project
                            +"?format=json&variant=withVulnerabilities&download=true",
                            headers=headers, verify=False, timeout=10000)
-        text = json.loads(res.text)
+        res.raise_for_status()
+        text = res.json()
         vulnerabilities = text.get("vulnerabilities") or []
         deps_deps = {}
         for deps in text.get("dependencies") or []:
@@ -106,7 +108,8 @@ def create_report(config):
         res = requests.get(url+"component/project/"+project+
             "?searchText=&pageSize=99999&pageNumber=1",
             headers=headers, verify=False, timeout=10000)
-        for component in json.loads(res.text):
+        res.raise_for_status()
+        for component in res.json():
             try:
                 last_version = component.get("repositoryMeta").get("latestVersion")
             except AttributeError:
