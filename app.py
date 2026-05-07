@@ -11,6 +11,7 @@ from functools import wraps
 
 from flask import (
     Flask,
+    Response,
     after_this_request,
     flash,
     jsonify,
@@ -170,6 +171,23 @@ def get_all_projects():
         logger.error(f"Error fetching projects: {e}")
         flash(f"An internal error has occurred. {str(e)}", "danger")
         return jsonify(error_msg=f"An internal error has occurred. {str(e)}"), 400
+
+@app.route("/api/v1/projects", methods=["POST"])
+@require_api_key
+def get_all_projects_api():
+    """ JSON-friendly entrypoint for CI: returns the DT project list """
+    body = request.get_json(silent=True) or {}
+    if not body and request.form:
+        body = request.form.to_dict(flat=True)
+    url = os.getenv("DTRG_URL") or body.get("url") or ""
+    token = os.getenv("DTRG_TOKEN") or body.get("token") or ""
+    if not url or not token:
+        return jsonify(error="url and token are required"), 400
+    logger.debug(f"API projects request for: {url}")
+    result = get_projects(url, token)
+    if isinstance(result, dict):
+        return jsonify(result), 502
+    return Response(result, mimetype="application/json")
 
 
 # GRAPH GROUP
