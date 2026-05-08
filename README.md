@@ -89,6 +89,13 @@ All environment variables:
 * DTRG_API_KEY - shared secret required on the /api/v1/* endpoints. When unset (default) those endpoints are open and only network controls protect them; when set, callers must present the same value in an `X-DTRG-Key` or `Authorization: Bearer ...` header.
 * DTRG_INCLUDE_SUPPRESSED - when `true`, vulnerabilities that DT considers suppressed via VEX (state `resolved` / `resolved_with_pedigree` / `false_positive` / `not_affected`) are still rendered in the report with their analysis state in the `All issues` sheet. Default `false`, which matches the DT UI.
 * CVEPAAS_URL - [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) address
+## Development
+Tests live under `tests/` and run with pytest:
+```
+pip install -r requirements-dev.txt
+pytest -q
+```
+The same suite runs on every push/PR via `.github/workflows/tests.yml`.
 ## Roadmap
 Planned functionality:
 - [x] *Project search*. Simplify the search for projects via the provided link and token.
@@ -101,7 +108,7 @@ Planned functionality:
 - [x] *Vulnerability prioritization*. Implement logic that will help assess which vulnerabilities require priority fixing.
 - [x] *Docs*. Add a documentation or just more info in readme.md for advansed settings (like custom port, use specific version and etc.)
 - [x] *VEX support*. Honour CycloneDX analysis state from DT so suppressed findings are dropped (or surfaced via DTRG_INCLUDE_SUPPRESSED) in the report.
-- [ ] *Optimization*. Add a Database for fast search.
+- [x] *Tests*. Smoke/unit tests for validators, severity merge, graph traversal, VEX filter and the API auth paths, run on every PR.
+- [ ] *Optimization*. Pagination + ajax-search for large project lists (so 10k+ projects in DT do not lock up the form).
 - [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
 - [ ] *Graph*. Manage deep of graph and add info to report about graph_level.
-- [ ] *Tests*. Add smoke/unit tests (validators, severity merge, graph traversal) so regressions are caught before release.
