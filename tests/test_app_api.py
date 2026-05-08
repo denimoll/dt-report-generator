@@ -170,6 +170,7 @@ def test_form_projects_endpoint_paginates_with_env(monkeypatch):
     app_module.app.config.update(WTF_CSRF_ENABLED=True)
     assert res.status_code == 200
     assert res.headers["X-Total-Count"] == "0"
+    assert res.headers["X-Page-Size"] == "25"
     _, kwargs = mocked.call_args
     assert kwargs["page_size"] == 25
     assert kwargs["page_number"] == 2

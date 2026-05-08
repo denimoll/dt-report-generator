@@ -339,14 +339,16 @@ def get_all_projects():
             page_number = 1
         logger.debug(f"Fetching projects from: {url} "
                      f"(page={page_number}, search={search_text!r})")
+        page_size = projects_page_size()
         body, total = get_projects(url, token,
                                    search_text=search_text,
-                                   page_size=projects_page_size(),
+                                   page_size=page_size,
                                    page_number=page_number)
         if isinstance(body, dict):
             return jsonify(body), 502
         response = Response(body, mimetype="application/json")
         response.headers["X-Total-Count"] = str(total)
+        response.headers["X-Page-Size"] = str(page_size)
         return response
     except (ValueError, ConnectionError, IndexError) as e:
         logger.error(f"Error fetching projects: {e}")
