@@ -104,7 +104,8 @@
                         url: "/projects/get_all",
                         data: {
                             "url": $("#url").val(),
-                            "token": $("#token").val()
+                            "token": $("#token").val(),
+                            "csrf_token": $('input[name="csrf_token"]').val()
                         },
                         success: function(data) {
                             projects = jQuery.parseJSON(data);
