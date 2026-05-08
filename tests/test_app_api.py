@@ -90,11 +90,9 @@ def test_api_projects_400_without_url_or_token(client):
 
 def test_api_projects_proxies_dt_response(client):
     """ With env defaults set, the endpoint forwards what get_projects returns """
-    fake_response = MagicMock()
-    fake_response.status_code = 200
-    fake_response.text = json.dumps([{"name": "proj", "uuid": "u"}])
+    body = json.dumps([{"name": "proj", "uuid": "u"}])
     with patch.object(app_module, "get_projects",
-                      return_value=fake_response.text) as mocked:
+                      return_value=(body, 1)) as mocked:
         res = client.post("/api/v1/projects",
                           headers={"X-DTRG-Key": "secret"},
                           data=json.dumps({"url": "https://example.com",
@@ -102,12 +100,13 @@ def test_api_projects_proxies_dt_response(client):
                           content_type="application/json")
     assert res.status_code == 200
     assert res.headers["Content-Type"].startswith("application/json")
+    assert res.headers["X-Total-Count"] == "1"
     assert mocked.called
 
 
 def test_api_projects_502_when_get_projects_returns_error_dict(client):
     with patch.object(app_module, "get_projects",
-                      return_value={"error": "Request to Dependency-Track failed"}):
+                      return_value=({"error": "Request to Dependency-Track failed"}, 0)):
         res = client.post("/api/v1/projects",
                           headers={"X-DTRG-Key": "secret"},
                           data=json.dumps({"url": "https://example.com",
@@ -115,6 +114,67 @@ def test_api_projects_502_when_get_projects_returns_error_dict(client):
                           content_type="application/json")
     assert res.status_code == 502
     assert res.get_json()["error"] == "Request to Dependency-Track failed"
+
+
+def test_api_projects_forwards_pagination(client):
+    body = json.dumps([])
+    with patch.object(app_module, "get_projects",
+                      return_value=(body, 0)) as mocked:
+        client.post("/api/v1/projects",
+                    headers={"X-DTRG-Key": "secret"},
+                    data=json.dumps({"url": "https://example.com", "token": "t",
+                                     "searchText": "kafka",
+                                     "pageSize": 25, "pageNumber": 3}),
+                    content_type="application/json")
+    args, kwargs = mocked.call_args
+    assert kwargs["search_text"] == "kafka"
+    assert kwargs["page_size"] == 25
+    assert kwargs["page_number"] == 3
+
+
+def test_api_projects_default_page_size_is_unbounded(client):
+    """ Backwards compat: CI users without pagination get the full list """
+    body = json.dumps([])
+    with patch.object(app_module, "get_projects",
+                      return_value=(body, 0)) as mocked:
+        client.post("/api/v1/projects",
+                    headers={"X-DTRG-Key": "secret"},
+                    data=json.dumps({"url": "https://example.com", "token": "t"}),
+                    content_type="application/json")
+    _, kwargs = mocked.call_args
+    assert kwargs["page_size"] == 99999
+    assert kwargs["page_number"] == 1
+
+
+def test_api_projects_400_on_garbage_pagination(client):
+    res = client.post("/api/v1/projects",
+                      headers={"X-DTRG-Key": "secret"},
+                      data=json.dumps({"url": "https://example.com", "token": "t",
+                                       "pageSize": "many"}),
+                      content_type="application/json")
+    assert res.status_code == 400
+    assert "integers" in res.get_json()["error"]
+
+
+def test_form_projects_endpoint_paginates_with_env(monkeypatch):
+    monkeypatch.delenv("DTRG_API_KEY", raising=False)
+    monkeypatch.setenv("DTRG_PROJECTS_PAGE_SIZE", "25")
+    app_module.app.config.update(TESTING=True, WTF_CSRF_ENABLED=False)
+    body = json.dumps([])
+    with patch.object(app_module, "get_projects",
+                      return_value=(body, 0)) as mocked:
+        with app_module.app.test_client() as c:
+            res = c.post("/projects/get_all",
+                         data={"url": "https://example.com", "token": "t",
+                               "searchText": "k", "pageNumber": "2"})
+    app_module.app.config.update(WTF_CSRF_ENABLED=True)
+    assert res.status_code == 200
+    assert res.headers["X-Total-Count"] == "0"
+    assert res.headers["X-Page-Size"] == "25"
+    _, kwargs = mocked.call_args
+    assert kwargs["page_size"] == 25
+    assert kwargs["page_number"] == 2
+    assert kwargs["search_text"] == "k"
 
 
 # CSRF behaviour
