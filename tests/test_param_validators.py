@@ -48,6 +48,18 @@ def test_graph_depth_falls_back_on_garbage(monkeypatch):
     monkeypatch.setenv("DTRG_GRAPH_DEPTH", "deep")
     assert pv.graph_depth() == 3
 
+def test_projects_page_size_default(monkeypatch):
+    monkeypatch.delenv("DTRG_PROJECTS_PAGE_SIZE", raising=False)
+    assert pv.projects_page_size() == 50
+
+def test_projects_page_size_explicit(monkeypatch):
+    monkeypatch.setenv("DTRG_PROJECTS_PAGE_SIZE", "200")
+    assert pv.projects_page_size() == 200
+
+def test_projects_page_size_falls_back_on_garbage(monkeypatch):
+    monkeypatch.setenv("DTRG_PROJECTS_PAGE_SIZE", "many")
+    assert pv.projects_page_size() == 50
+
 
 # check_format_url
 

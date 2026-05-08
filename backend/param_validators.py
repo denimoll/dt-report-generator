@@ -30,6 +30,14 @@ def graph_depth() -> int:
         return 3
 
 
+def projects_page_size() -> int:
+    """ Page size for the form's project dropdown (lazy-loaded from DT) """
+    try:
+        return int(os.getenv("DTRG_PROJECTS_PAGE_SIZE", "50"))
+    except ValueError:
+        return 50
+
+
 if not verify_tls():
     urllib3.disable_warnings()
 
