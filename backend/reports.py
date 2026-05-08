@@ -258,6 +258,9 @@ def create_report(config, output_dir):
                 final_severity = str(component.get("severity"))
             ws2.cell(row=num+2, column=5, value=final_severity)
             ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
+            graph_level = component.get("graph_level")
+            ws2.cell(row=num+2, column=7,
+                     value="" if graph_level is None else graph_level)
             for vuln in component.get("vulnerabilities"):
                 ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
                 ws3.cell(row=num+2+vuln_num, column=2, value=vuln.get("id"))
