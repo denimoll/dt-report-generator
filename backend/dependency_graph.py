@@ -29,10 +29,10 @@ def get_graph(components, depth=3):
         logger.debug(f"Expanding dependencies at depth={depth}")
         if visited is None:
             visited = set()
-        deps_deps = []
         copy_dependencies = copy.deepcopy(dependencies)
 
         for num, dependency in enumerate(copy_dependencies):
+            deps_deps = []
             for dep in dependency.get("dependencies") or []:
                 if dep in visited:
                     continue
@@ -41,9 +41,11 @@ def get_graph(components, depth=3):
                 if dep_value is None:
                     continue
                 deps_deps.append(dep_value)
+            if deps_deps and depth:
                 dependencies[num]["dependencies"] = update_direct_dependencies(
-                    copy.deepcopy(deps_deps), depth-1, visited) if depth and deps_deps else []
-            deps_deps = []
+                    copy.deepcopy(deps_deps), depth-1, visited)
+            else:
+                dependencies[num]["dependencies"] = []
         return dependencies
 
     def update_tree(tree, dependencies):
@@ -67,17 +69,19 @@ def get_graph(components, depth=3):
 
         return tree
 
-    direct_dependencies = [v for v in components.values() if v.get("is_direct_dependency")]
+    direct_uuids = {k for k, v in components.items() if v.get("is_direct_dependency")}
 
-    if not direct_dependencies:
+    if not direct_uuids:
         logger.info("No direct dependencies found")
         return 0
 
+    direct_dependencies = [components[k] for k in direct_uuids]
     logger.info(f"Found {len(direct_dependencies)} direct dependencies")
 
     tree = update_tree(
         tree,
-        update_direct_dependencies(copy.deepcopy(direct_dependencies), depth-1)
+        update_direct_dependencies(copy.deepcopy(direct_dependencies), depth-1,
+                                   visited=set(direct_uuids))
     )
 
     # Render tree to string

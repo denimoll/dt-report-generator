@@ -53,6 +53,27 @@ def test_depth_one_drops_children():
     assert "libB" not in out
 
 
+def test_handles_cycle_without_recursion():
+    components = {
+        "a": _component("libA", is_direct=True, deps=["b"]),
+        "b": _component("libB", deps=["a"]),
+    }
+    out = get_graph(components, depth=10)
+    # libA listed exactly once thanks to the visited set; recursion bounded
+    assert out.count("libA") == 1
+    assert out.count("libB") == 1
+
+
+def test_skips_missing_dependency_uuid():
+    components = {
+        "a": _component("libA", is_direct=True, deps=["ghost"]),
+    }
+    # ghost does not exist in components; traversal should not crash
+    out = get_graph(components)
+    assert "libA" in out
+    assert "ghost" not in out
+
+
 def test_vulnerable_component_marked():
     components = {
         "a": _component("libA", is_direct=True,
