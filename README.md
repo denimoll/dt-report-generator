@@ -48,6 +48,7 @@ Notes:
 - The endpoints are open by default. When the service is reachable beyond a trusted network, set `DTRG_API_KEY` so requests must present the same key in the `X-DTRG-Key` (or `Authorization: Bearer ...`) header.
 - Errors come back as `{"error": "..."}` with a non-200 status, never as a redirect.
 - These endpoints are deliberately CSRF-exempt (CI tooling has no session). The form endpoints (`/reports/get_report`, `/projects/get_all`) keep CSRF protection on; rely on `DTRG_API_KEY` and network controls for `/api/v1/*`.
+- The full OpenAPI spec is served at [`/apispec.json`](http://localhost:5000/apispec.json) and the Swagger UI at [`/apidocs/`](http://localhost:5000/apidocs/), so you can explore request shapes and try calls from the browser.
 
 ## Advanced usage
 You can set environment variable. A couple of examples: \
@@ -113,4 +114,4 @@ Planned functionality:
 - [x] *Tests*. Smoke/unit tests for validators, severity merge, graph traversal, VEX filter and the API auth paths, run on every PR.
 - [ ] *Optimization*. Pagination + ajax-search for large project lists (so 10k+ projects in DT do not lock up the form).
 - [x] *Graph*. Configurable traversal depth via `DTRG_GRAPH_DEPTH`; per-component level surfaced in the report.
-- [ ] *Specification*. Add a swagger / more info for API Endpoint like parameters in and out.
+- [x] *Specification*. OpenAPI 2.0 spec served at `/apispec.json`; Swagger UI at `/apidocs/`.

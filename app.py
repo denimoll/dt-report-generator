@@ -21,6 +21,7 @@ from flask import (
     send_file,
     url_for,
 )
+from flasgger import Swagger
 from flask_bootstrap import Bootstrap5
 from flask_wtf.csrf import CSRFProtect
 
@@ -39,6 +40,43 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
 csrf = CSRFProtect(app)
+
+# OpenAPI / Swagger UI at /apidocs/, raw spec at /apispec.json.
+swagger = Swagger(app, config={
+    "headers": [],
+    "specs": [{
+        "endpoint": "apispec",
+        "route": "/apispec.json",
+        "rule_filter": lambda rule: True,
+        "model_filter": lambda tag: True,
+    }],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/apidocs/",
+}, template={
+    "swagger": "2.0",
+    "info": {
+        "title": "dt-report-generator API",
+        "description": "Generate Dependency-Track reports from a browser form "
+                       "or from CI. The /api/v1/* endpoints are JSON, "
+                       "CSRF-exempt, and gated by DTRG_API_KEY when set.",
+        "version": "1.0",
+    },
+    "securityDefinitions": {
+        "ApiKey": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-DTRG-Key",
+            "description": "DTRG_API_KEY value. Required only if the env var is set.",
+        },
+        "Bearer": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "Authorization",
+            "description": "'Bearer <DTRG_API_KEY>'. Alternative to X-DTRG-Key.",
+        },
+    },
+})
 
 
 def _presented_api_key():
@@ -68,7 +106,16 @@ def require_api_key(view):
 # INDEX PAGE
 @app.route("/", methods=["GET"])
 def index():
-    """ Index page """
+    """Render the HTML form for browser users.
+    ---
+    tags:
+      - browser
+    produces:
+      - text/html
+    responses:
+      200:
+        description: HTML page with the report-generation form.
+    """
     form = GetReportForm()
     return render_template("index.html", form=form)
 
@@ -113,7 +160,39 @@ def _build_report(config, output_dir):
 
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
-    """ API Endpoint /reports/get_report """
+    """Browser form submission. Prefer /api/v1/reports/get_report from CI.
+    ---
+    tags:
+      - browser
+    consumes:
+      - application/x-www-form-urlencoded
+    produces:
+      - application/zip
+      - text/html
+    parameters:
+      - in: formData
+        name: csrf_token
+        required: true
+        type: string
+        description: Token rendered into the form by Flask-WTF. Required.
+      - in: formData
+        name: url
+        type: string
+      - in: formData
+        name: token
+        type: string
+      - in: formData
+        name: project
+        type: string
+        description: '"name version (uuid)" as produced by the form select.'
+    responses:
+      200:
+        description: ZIP archive with the rendered reports.
+      302:
+        description: Redirect back to the form on validation failure.
+      400:
+        description: CSRF token missing or invalid.
+    """
     logger.info("Received request to generate report")
     output_dir = _new_output_dir()
 
@@ -136,7 +215,57 @@ def get_report():
 @csrf.exempt
 @require_api_key
 def get_report_api():
-    """ JSON-friendly entrypoint for CI: returns the ZIP directly """
+    """Generate a DT report and return it as a ZIP.
+    ---
+    tags:
+      - api
+    security:
+      - ApiKey: []
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/zip
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - project
+          properties:
+            url:
+              type: string
+              description: DT instance URL. Optional when DTRG_URL is set.
+              example: https://dependencytrack.example.com
+            token:
+              type: string
+              description: DT API key. Optional when DTRG_TOKEN is set.
+            project:
+              type: string
+              description: DT project UUID.
+              example: 00000000-0000-0000-0000-000000000000
+    responses:
+      200:
+        description: ZIP archive with result.docx, result.xlsx and graph.html.
+      400:
+        description: Validation error (missing field or upstream rejected).
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+      401:
+        description: DTRG_API_KEY is set and the request did not present it.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: unauthorized
+    """
     logger.info("Received API request to generate report")
     body = request.get_json(silent=True) or {}
     if not body and request.form:
@@ -162,7 +291,31 @@ def get_report_api():
 # PROJECTS GROUP
 @app.route("/projects/get_all", methods=["POST"])
 def get_all_projects():
-    """ API Endpoint /projects/get_all """
+    """AJAX project list for the browser form. Prefer /api/v1/projects from CI.
+    ---
+    tags:
+      - browser
+    consumes:
+      - application/x-www-form-urlencoded
+    produces:
+      - application/json
+    parameters:
+      - in: formData
+        name: csrf_token
+        required: true
+        type: string
+      - in: formData
+        name: url
+        type: string
+      - in: formData
+        name: token
+        type: string
+    responses:
+      200:
+        description: DT project list.
+      400:
+        description: CSRF or upstream error.
+    """
     logger.info("Received request to fetch all projects")
     data = request.form.to_dict(flat=False)
     try:
@@ -179,7 +332,50 @@ def get_all_projects():
 @csrf.exempt
 @require_api_key
 def get_all_projects_api():
-    """ JSON-friendly entrypoint for CI: returns the DT project list """
+    """List Dependency-Track projects.
+    ---
+    tags:
+      - api
+    security:
+      - ApiKey: []
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: false
+        schema:
+          type: object
+          properties:
+            url:
+              type: string
+              description: DT instance URL. Optional when DTRG_URL is set.
+            token:
+              type: string
+              description: DT API key. Optional when DTRG_TOKEN is set.
+    responses:
+      200:
+        description: JSON array of DT project objects (forwarded from DT).
+      400:
+        description: Missing url and/or token (and no env defaults).
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+      401:
+        description: DTRG_API_KEY is set and the request did not present it.
+      502:
+        description: Upstream DT request failed.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+    """
     body = request.get_json(silent=True) or {}
     if not body and request.form:
         body = request.form.to_dict(flat=True)

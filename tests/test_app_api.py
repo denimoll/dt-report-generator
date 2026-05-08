@@ -146,3 +146,23 @@ def test_api_endpoints_remain_csrf_exempt(client):
     # 400 from input validation, NOT from CSRFProtect
     assert res.status_code == 400
     assert res.get_json()["error"] == "url and token are required"
+
+
+# OpenAPI spec
+
+def test_apispec_json_lists_api_routes(client):
+    res = client.get("/apispec.json")
+    assert res.status_code == 200
+    spec = res.get_json()
+    assert "/api/v1/reports/get_report" in spec["paths"]
+    assert "/api/v1/projects" in spec["paths"]
+    # Auth schemes are advertised
+    assert "ApiKey" in spec["securityDefinitions"]
+    assert "Bearer" in spec["securityDefinitions"]
+
+
+def test_apidocs_ui_renders(client):
+    res = client.get("/apidocs/")
+    assert res.status_code == 200
+    # Swagger UI ships a static index that mentions swagger
+    assert b"swagger" in res.data.lower()
