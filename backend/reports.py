@@ -11,6 +11,7 @@ from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
+from backend.dependency_graph import compute_graph_levels
 from backend.param_validators import (
     check_format_url,
     check_project,
@@ -122,7 +123,7 @@ def create_report(config, output_dir):
                     "vulnerabilities": [],
                     "severity": "",
                     "severity_level": 0,
-                    "graph_level": 0
+                    "graph_level": None,
                 }
             })
         logger.info(f"{len(components)} components processed")
@@ -221,6 +222,9 @@ def create_report(config, output_dir):
                                       reverse=True))).values())
         logger.info(f"{len(vuln_components)} vulnerable components found")
 
+        # populate graph_level on each component before rendering the reports
+        compute_graph_levels(components)
+
         # render and save result in word report
         logger.info("Generating Word report")
         doc.render({
@@ -254,6 +258,9 @@ def create_report(config, output_dir):
                 final_severity = str(component.get("severity"))
             ws2.cell(row=num+2, column=5, value=final_severity)
             ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
+            graph_level = component.get("graph_level")
+            ws2.cell(row=num+2, column=7,
+                     value="" if graph_level is None else graph_level)
             for vuln in component.get("vulnerabilities"):
                 ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
                 ws3.cell(row=num+2+vuln_num, column=2, value=vuln.get("id"))

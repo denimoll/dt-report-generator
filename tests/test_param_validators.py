@@ -36,6 +36,18 @@ def test_http_timeout_falls_back_on_garbage(monkeypatch):
     monkeypatch.setenv("DTRG_HTTP_TIMEOUT", "not-a-number")
     assert pv.http_timeout() == 120
 
+def test_graph_depth_default(monkeypatch):
+    monkeypatch.delenv("DTRG_GRAPH_DEPTH", raising=False)
+    assert pv.graph_depth() == 3
+
+def test_graph_depth_explicit(monkeypatch):
+    monkeypatch.setenv("DTRG_GRAPH_DEPTH", "7")
+    assert pv.graph_depth() == 7
+
+def test_graph_depth_falls_back_on_garbage(monkeypatch):
+    monkeypatch.setenv("DTRG_GRAPH_DEPTH", "deep")
+    assert pv.graph_depth() == 3
+
 
 # check_format_url
 
