@@ -22,6 +22,7 @@ from flask import (
     url_for,
 )
 from flask_bootstrap import Bootstrap5
+from flask_wtf.csrf import CSRFProtect
 
 from backend.dependency_graph import get_graph
 from backend.projects import get_projects
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
+csrf = CSRFProtect(app)
 
 
 def _presented_api_key():
@@ -131,6 +133,7 @@ def get_report():
     return redirect(url_for("index"))
 
 @app.route("/api/v1/reports/get_report", methods=["POST"])
+@csrf.exempt
 @require_api_key
 def get_report_api():
     """ JSON-friendly entrypoint for CI: returns the ZIP directly """
@@ -173,6 +176,7 @@ def get_all_projects():
         return jsonify(error_msg=f"An internal error has occurred. {str(e)}"), 400
 
 @app.route("/api/v1/projects", methods=["POST"])
+@csrf.exempt
 @require_api_key
 def get_all_projects_api():
     """ JSON-friendly entrypoint for CI: returns the DT project list """

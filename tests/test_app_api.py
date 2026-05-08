@@ -115,3 +115,34 @@ def test_api_projects_502_when_get_projects_returns_error_dict(client):
                           content_type="application/json")
     assert res.status_code == 502
     assert res.get_json()["error"] == "Request to Dependency-Track failed"
+
+
+# CSRF behaviour
+
+def test_form_post_rejected_without_csrf_token(client):
+    """ /reports/get_report and /projects/get_all are form endpoints under CSRF """
+    res = client.post("/reports/get_report",
+                      data={"url": "https://example.com", "token": "t",
+                            "project": "demo (00000000-0000-0000-0000-000000000000)"})
+    assert res.status_code == 400
+    # The CSRF rejection message comes from flask-wtf, distinct from the API
+    # endpoints' JSON error bodies.
+    assert b"CSRF" in res.data or b"csrf" in res.data
+
+
+def test_projects_form_endpoint_rejected_without_csrf_token(client):
+    res = client.post("/projects/get_all",
+                      data={"url": "https://example.com", "token": "t"})
+    assert res.status_code == 400
+    assert b"CSRF" in res.data or b"csrf" in res.data
+
+
+def test_api_endpoints_remain_csrf_exempt(client):
+    """ /api/v1/* must not require a CSRF token (CI flow) """
+    res = client.post("/api/v1/projects",
+                      headers={"X-DTRG-Key": "secret"},
+                      data=json.dumps({}),
+                      content_type="application/json")
+    # 400 from input validation, NOT from CSRFProtect
+    assert res.status_code == 400
+    assert res.get_json()["error"] == "url and token are required"
