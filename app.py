@@ -26,6 +26,7 @@ from flask_bootstrap import Bootstrap5
 from flask_wtf.csrf import CSRFProtect
 
 from backend.dependency_graph import get_graph
+from backend.param_validators import projects_page_size
 from backend.projects import get_projects
 from backend.reports import create_report
 from form import GetReportForm
@@ -310,9 +311,19 @@ def get_all_projects():
       - in: formData
         name: token
         type: string
+      - in: formData
+        name: searchText
+        type: string
+        description: Optional substring filter forwarded to DT.
+      - in: formData
+        name: pageNumber
+        type: integer
+        description: 1-based page number. Page size is fixed by DTRG_PROJECTS_PAGE_SIZE.
     responses:
       200:
-        description: DT project list.
+        description: |
+          DT project list for the requested page. The X-Total-Count header
+          carries the total number of matching projects.
       400:
         description: CSRF or upstream error.
     """
@@ -321,8 +332,22 @@ def get_all_projects():
     try:
         url = data.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
         token = data.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
-        logger.debug(f"Fetching projects from: {url}")
-        return get_projects(url, token)
+        search_text = (data.get("searchText") or [""])[0]
+        try:
+            page_number = max(int((data.get("pageNumber") or ["1"])[0]), 1)
+        except (ValueError, TypeError):
+            page_number = 1
+        logger.debug(f"Fetching projects from: {url} "
+                     f"(page={page_number}, search={search_text!r})")
+        body, total = get_projects(url, token,
+                                   search_text=search_text,
+                                   page_size=projects_page_size(),
+                                   page_number=page_number)
+        if isinstance(body, dict):
+            return jsonify(body), 502
+        response = Response(body, mimetype="application/json")
+        response.headers["X-Total-Count"] = str(total)
+        return response
     except (ValueError, ConnectionError, IndexError) as e:
         logger.error(f"Error fetching projects: {e}")
         flash(f"An internal error has occurred. {str(e)}", "danger")
@@ -356,11 +381,26 @@ def get_all_projects_api():
             token:
               type: string
               description: DT API key. Optional when DTRG_TOKEN is set.
+            searchText:
+              type: string
+              description: Optional substring filter forwarded to DT.
+            pageSize:
+              type: integer
+              description: |
+                Optional. Number of projects per page (default returns
+                everything DT has up to 99999 to preserve previous CI
+                behaviour).
+            pageNumber:
+              type: integer
+              description: Optional. 1-based page number (default 1).
     responses:
       200:
-        description: JSON array of DT project objects (forwarded from DT).
+        description: |
+          JSON array of DT project objects (forwarded from DT). The
+          X-Total-Count response header carries the total number of
+          projects matching the search.
       400:
-        description: Missing url and/or token (and no env defaults).
+        description: Missing url/token or non-integer pagination.
         schema:
           type: object
           properties:
@@ -383,11 +423,25 @@ def get_all_projects_api():
     token = os.getenv("DTRG_TOKEN") or body.get("token") or ""
     if not url or not token:
         return jsonify(error="url and token are required"), 400
-    logger.debug(f"API projects request for: {url}")
-    result = get_projects(url, token)
+
+    search_text = str(body.get("searchText") or "")
+    try:
+        page_size = int(body["pageSize"]) if body.get("pageSize") else 99999
+        page_number = max(int(body["pageNumber"]) if body.get("pageNumber") else 1, 1)
+    except (ValueError, TypeError):
+        return jsonify(error="pageSize and pageNumber must be integers"), 400
+
+    logger.debug(f"API projects request for: {url} "
+                 f"(page={page_number}, size={page_size}, search={search_text!r})")
+    result, total = get_projects(url, token,
+                                 search_text=search_text,
+                                 page_size=page_size,
+                                 page_number=page_number)
     if isinstance(result, dict):
         return jsonify(result), 502
-    return Response(result, mimetype="application/json")
+    response = Response(result, mimetype="application/json")
+    response.headers["X-Total-Count"] = str(total)
+    return response
 
 
 # GRAPH GROUP
