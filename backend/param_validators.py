@@ -22,6 +22,14 @@ def http_timeout() -> int:
         return 120
 
 
+def graph_depth() -> int:
+    """ Default depth for the dependency graph traversal """
+    try:
+        return int(os.getenv("DTRG_GRAPH_DEPTH", "3"))
+    except ValueError:
+        return 3
+
+
 if not verify_tls():
     urllib3.disable_warnings()
 

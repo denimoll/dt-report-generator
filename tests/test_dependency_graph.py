@@ -1,6 +1,6 @@
 """ Tests for backend.dependency_graph """
 
-from backend.dependency_graph import get_graph
+from backend.dependency_graph import compute_graph_levels, get_graph
 
 
 def _component(name, *, is_direct=False, deps=None, vulns=None, severity=""):
@@ -15,7 +15,7 @@ def _component(name, *, is_direct=False, deps=None, vulns=None, severity=""):
         "vulnerabilities": vulns or [],
         "severity": severity,
         "severity_level": 0,
-        "graph_level": 0,
+        "graph_level": None,
     }
 
 
@@ -83,3 +83,95 @@ def test_vulnerable_component_marked():
     out = get_graph(components)
     assert 'vuln-critical' in out
     assert "[critical vuln]" in out
+
+
+# compute_graph_levels
+
+def test_compute_graph_levels_marks_direct_deps_as_one():
+    components = {
+        "a": _component("libA", is_direct=True),
+        "b": _component("libB", is_direct=True),
+    }
+    compute_graph_levels(components)
+    assert components["a"]["graph_level"] == 1
+    assert components["b"]["graph_level"] == 1
+
+
+def test_compute_graph_levels_descends():
+    components = {
+        "a": _component("libA", is_direct=True, deps=["b"]),
+        "b": _component("libB", deps=["c"]),
+        "c": _component("libC"),
+    }
+    compute_graph_levels(components, depth=5)
+    assert components["a"]["graph_level"] == 1
+    assert components["b"]["graph_level"] == 2
+    assert components["c"]["graph_level"] == 3
+
+
+def test_compute_graph_levels_picks_minimum_via_bfs():
+    # libC reachable both as a direct dep (level 1) and as a child of libB
+    components = {
+        "a": _component("libA", is_direct=True, deps=["b"]),
+        "b": _component("libB", deps=["c"]),
+        "c": _component("libC", is_direct=True),
+    }
+    compute_graph_levels(components)
+    assert components["c"]["graph_level"] == 1
+
+
+def test_compute_graph_levels_respects_depth():
+    components = {
+        "a": _component("libA", is_direct=True, deps=["b"]),
+        "b": _component("libB", deps=["c"]),
+        "c": _component("libC"),
+    }
+    compute_graph_levels(components, depth=2)
+    assert components["a"]["graph_level"] == 1
+    assert components["b"]["graph_level"] == 2
+    assert components["c"]["graph_level"] is None  # cut by depth
+
+
+def test_compute_graph_levels_unreachable_stays_none():
+    components = {
+        "a": _component("libA", is_direct=True),
+        "b": _component("libB"),  # not direct, not depended on
+    }
+    compute_graph_levels(components)
+    assert components["a"]["graph_level"] == 1
+    assert components["b"]["graph_level"] is None
+
+
+def test_compute_graph_levels_no_op_without_direct_deps():
+    components = {"a": _component("libA")}
+    compute_graph_levels(components)
+    assert components["a"]["graph_level"] is None
+
+
+def test_compute_graph_levels_uses_env_default(monkeypatch):
+    monkeypatch.setenv("DTRG_GRAPH_DEPTH", "1")
+    components = {
+        "a": _component("libA", is_direct=True, deps=["b"]),
+        "b": _component("libB"),
+    }
+    compute_graph_levels(components)  # no explicit depth
+    assert components["a"]["graph_level"] == 1
+    assert components["b"]["graph_level"] is None  # depth=1 stops at direct deps
+
+
+def test_compute_graph_levels_handles_cycle():
+    components = {
+        "a": _component("libA", is_direct=True, deps=["b"]),
+        "b": _component("libB", deps=["a"]),
+    }
+    compute_graph_levels(components, depth=10)
+    assert components["a"]["graph_level"] == 1
+    assert components["b"]["graph_level"] == 2  # not revisited as a's child
+
+
+def test_compute_graph_levels_skips_missing_uuid():
+    components = {
+        "a": _component("libA", is_direct=True, deps=["ghost"]),
+    }
+    compute_graph_levels(components)  # must not crash
+    assert components["a"]["graph_level"] == 1
