@@ -102,6 +102,28 @@ def create_report(config, output_dir):
                 deps.get("ref"):deps.get("dependsOn")
             })
 
+        # The CycloneDX variant=withVulnerabilities does not always carry
+        # the analysis block (depends on DT version and how the VEX was
+        # imported). Pull the findings list separately - it is the source
+        # of truth for the audit state shown in the DT UI.
+        logger.info("Fetching VEX analysis from findings API")
+        res = requests.get(url+"finding/project/"+project+"?suppressed=true",
+                           headers=headers, verify=verify_tls(), timeout=http_timeout())
+        res.raise_for_status()
+        analysis_by_pair = {}
+        for finding in res.json() or []:
+            vuln_id = (finding.get("vulnerability") or {}).get("vulnId")
+            component_uuid = (finding.get("component") or {}).get("uuid")
+            analysis = finding.get("analysis") or {}
+            if vuln_id and component_uuid:
+                analysis_by_pair[(vuln_id, component_uuid)] = {
+                    "state": (analysis.get("state") or "").lower(),
+                    "justification": analysis.get("justification") or "",
+                    "is_suppressed": bool(analysis.get("isSuppressed")),
+                }
+        logger.info(f"Findings API returned analysis for "
+                    f"{len(analysis_by_pair)} (vuln, component) pairs")
+
         # get components
         res = requests.get(url+"component/project/"+project+
             "?searchText=&pageSize=99999&pageNumber=1",
@@ -133,14 +155,24 @@ def create_report(config, output_dir):
         suppressed_states = {"resolved", "resolved_with_pedigree",
                              "false_positive", "not_affected"}
         for vuln in vulnerabilities:
-            analysis = vuln.get("analysis") or {}
-            analysis_state = (analysis.get("state") or "").lower()
-            analysis_justification = analysis.get("justification") or ""
-            analysis_response = ", ".join(analysis.get("response") or [])
-            analysis_detail = analysis.get("detail") or ""
-            is_suppressed = analysis_state in suppressed_states
+            sbom_analysis = vuln.get("analysis") or {}
+            sbom_state = (sbom_analysis.get("state") or "").lower()
+            sbom_justification = sbom_analysis.get("justification") or ""
+            analysis_response = ", ".join(sbom_analysis.get("response") or [])
+            analysis_detail = sbom_analysis.get("detail") or ""
             for component in vuln.get("affects"):
                 vuln_id = vuln.get("id")
+                component_ref = component.get("ref")
+                # Findings API wins over the SBOM analysis block; SBOM is
+                # the fallback for response/detail (findings does not expose those).
+                finding_analysis = analysis_by_pair.get((vuln_id, component_ref), {})
+                analysis_state = finding_analysis.get("state") or sbom_state
+                analysis_justification = (finding_analysis.get("justification")
+                                          or sbom_justification)
+                is_suppressed = (
+                    finding_analysis.get("is_suppressed", False)
+                    or analysis_state in suppressed_states
+                )
                 vuln_word_link = RichText()
                 if "cve" in vuln_id.lower():
                     vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
