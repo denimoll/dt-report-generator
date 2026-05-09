@@ -37,6 +37,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+__version__ = "2.0.0"
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
@@ -102,6 +104,31 @@ def require_api_key(view):
                 return jsonify(error="unauthorized"), 401
         return view(*args, **kwargs)
     return wrapper
+
+
+# PROBES
+@app.route("/health", methods=["GET"])
+def health():
+    """Liveness/readiness probe.
+    ---
+    tags:
+      - probe
+    produces:
+      - application/json
+    responses:
+      200:
+        description: Service is up. Returns the running version.
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+            version:
+              type: string
+              example: 2.0.0
+    """
+    return jsonify(status="ok", version=__version__)
 
 
 # INDEX PAGE
