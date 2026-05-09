@@ -207,6 +207,135 @@ def _fetch_components(url, headers, project, direct_uuids, deps_deps):
     return components
 
 
+_SUPPRESSED_STATES = {"resolved", "resolved_with_pedigree",
+                      "false_positive", "not_affected"}
+
+
+def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
+    """ Distribute vulnerabilities across components, with VEX + CVE-PaaS data.
+
+    For every (vuln, affected component) pair we resolve the analysis state
+    (findings API wins, SBOM block is the fallback for response/detail),
+    build the per-vuln link, optionally enrich the entry from CVE-PaaS for
+    canonical CVE ids, and append the result to the component's
+    vulnerabilities list. The doc handle is needed for docxtpl's hyperlink
+    builder.
+    """
+    logger.info("Processing component vulnerabilities")
+    for vuln in vulnerabilities:
+        sbom_analysis = vuln.get("analysis") or {}
+        sbom_state = (sbom_analysis.get("state") or "").lower()
+        sbom_justification = sbom_analysis.get("justification") or ""
+        analysis_response = ", ".join(sbom_analysis.get("response") or [])
+        analysis_detail = sbom_analysis.get("detail") or ""
+        for component in vuln.get("affects"):
+            vuln_id = vuln.get("id")
+            component_ref = component.get("ref")
+            # Findings API wins over the SBOM analysis block; SBOM is
+            # the fallback for response/detail (findings does not expose those).
+            finding_analysis = analysis_by_pair.get((vuln_id, component_ref), {})
+            analysis_state = finding_analysis.get("state") or sbom_state
+            analysis_justification = (finding_analysis.get("justification")
+                                      or sbom_justification)
+            is_suppressed = (
+                finding_analysis.get("is_suppressed", False)
+                or analysis_state in _SUPPRESSED_STATES
+            )
+            vuln_word_link = RichText()
+            if "cve" in vuln_id.lower():
+                vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
+                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+                # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
+                cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
+                                                 vuln_id, re.IGNORECASE) else ""
+            elif "ghsa" in vuln_id.lower():
+                vuln_link = "https://github.com/advisories/"+vuln_id
+                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+# https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
+                cve_id = ""
+            else:
+                vuln_link = vuln_id
+                vuln_word_link = vuln_id
+                cve_id = ""
+            severity_level, severity = get_severity(list(x.get("severity")
+                                                         for x in vuln.get("ratings")))
+            cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
+              verify=verify_tls(), timeout=http_timeout()).text) \
+              if os.getenv("CVEPAAS_URL") and cve_id else {}
+            add_info = []
+            if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
+                links = cve_paas["Details"]["Links"]
+                for link in links.get("POC"):
+                    add_info.append(link.get("url"))
+                if links.get("Nuclei templates"):
+                    add_info.append(links["Nuclei templates"].get("template_url"))
+            components[component_ref]["vulnerabilities"].append({
+                "uuid": vuln.get("bom-ref"),
+                "id": vuln_id,
+                "link": vuln_link,
+                "word_link": vuln_word_link,
+                "severity": severity,
+                "severity_level": severity_level,
+                "priority": cve_paas.get("Priority") or severity,
+                "add_info": ", ".join(sorted(set(add_info))),
+                "analysis_state": analysis_state,
+                "analysis_justification": analysis_justification,
+                "analysis_response": analysis_response,
+                "analysis_detail": analysis_detail,
+                "is_suppressed": is_suppressed,
+            })
+    logger.info("Vulnerabilities assigned to components")
+
+
+def _filter_suppressed(components, project_info):
+    """ Drop VEX-suppressed vulns unless DTRG_INCLUDE_SUPPRESSED is set.
+
+    Mutates components in place. Records the count of dropped (or kept,
+    when included) findings on project_info["suppressedCount"].
+    """
+    include_suppressed = os.getenv("DTRG_INCLUDE_SUPPRESSED",
+                                   "false").lower() in ["true", "1", "t"]
+    suppressed_count = 0
+    for value in components.values():
+        kept = []
+        for vuln in value["vulnerabilities"]:
+            if vuln["is_suppressed"]:
+                suppressed_count += 1
+                if not include_suppressed:
+                    continue
+            kept.append(vuln)
+        value["vulnerabilities"] = kept
+    project_info["suppressedCount"] = suppressed_count
+    logger.info(f"VEX-suppressed vulnerabilities: {suppressed_count} "
+                f"(included in report: {include_suppressed})")
+
+
+def _compute_severity(components):
+    """ Roll up the per-component severity from its remaining vulns """
+    logger.info("Computing final severity levels for components")
+    use_priority = bool(os.getenv("CVEPAAS_URL"))
+    for value in components.values():
+        vulns = value.get("vulnerabilities")
+        if not vulns:
+            continue
+        if use_priority:
+            severity_level, severity = get_severity(list(x.get("priority").lower()
+                                                         for x in vulns))
+        else:
+            severity_level, severity = get_severity(list(x.get("severity")
+                                                         for x in vulns))
+        value["severity"] = severity
+        value["severity_level"] = severity_level
+
+
+def _sort_vulnerable(components):
+    """ Return components that have vulns, sorted high-severity first """
+    vuln_components = {k: v for k, v in components.items() if v.get("vulnerabilities")}
+    return list(dict(sorted(vuln_components.items(),
+                            key=lambda item: item[1]["severity_level"],
+                            reverse=True)).values())
+
+
 def create_report(config, output_dir):
     """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
@@ -222,108 +351,10 @@ def create_report(config, output_dir):
         components = _fetch_components(url, headers, project,
                                        direct_uuids, deps_deps)
 
-        # add info about vulnerabilities to components
-        logger.info("Processing component vulnerabilities")
-        suppressed_states = {"resolved", "resolved_with_pedigree",
-                             "false_positive", "not_affected"}
-        for vuln in vulnerabilities:
-            sbom_analysis = vuln.get("analysis") or {}
-            sbom_state = (sbom_analysis.get("state") or "").lower()
-            sbom_justification = sbom_analysis.get("justification") or ""
-            analysis_response = ", ".join(sbom_analysis.get("response") or [])
-            analysis_detail = sbom_analysis.get("detail") or ""
-            for component in vuln.get("affects"):
-                vuln_id = vuln.get("id")
-                component_ref = component.get("ref")
-                # Findings API wins over the SBOM analysis block; SBOM is
-                # the fallback for response/detail (findings does not expose those).
-                finding_analysis = analysis_by_pair.get((vuln_id, component_ref), {})
-                analysis_state = finding_analysis.get("state") or sbom_state
-                analysis_justification = (finding_analysis.get("justification")
-                                          or sbom_justification)
-                is_suppressed = (
-                    finding_analysis.get("is_suppressed", False)
-                    or analysis_state in suppressed_states
-                )
-                vuln_word_link = RichText()
-                if "cve" in vuln_id.lower():
-                    vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
-                    vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
-                    # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
-                    cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
-                                                     vuln_id, re.IGNORECASE) else ""
-                elif "ghsa" in vuln_id.lower():
-                    vuln_link = "https://github.com/advisories/"+vuln_id
-                    vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
-# https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
-                    cve_id = ""
-                else:
-                    vuln_link = vuln_id
-                    vuln_word_link = vuln_id
-                    cve_id = ""
-                severity_level, severity = get_severity(list(x.get("severity")
-                                                             for x in vuln.get("ratings")))
-                cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
-                  verify=verify_tls(), timeout=http_timeout()).text) \
-                  if os.getenv("CVEPAAS_URL") and cve_id else {}
-                add_info = []
-                if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
-                    links = cve_paas["Details"]["Links"]
-                    for link in links.get("POC"):
-                        add_info.append(link.get("url"))
-                    if links.get("Nuclei templates"):
-                        add_info.append(links["Nuclei templates"].get("template_url"))
-                components[component.get("ref")]["vulnerabilities"].append({
-                    "uuid": vuln.get("bom-ref"),
-                    "id": vuln_id,
-                    "link": vuln_link,
-                    "word_link": vuln_word_link,
-                    "severity": severity,
-                    "severity_level": severity_level,
-                    "priority": cve_paas.get("Priority") or severity,
-                    "add_info": ", ".join(sorted(set(add_info))),
-                    "analysis_state": analysis_state,
-                    "analysis_justification": analysis_justification,
-                    "analysis_response": analysis_response,
-                    "analysis_detail": analysis_detail,
-                    "is_suppressed": is_suppressed,
-                })
-        logger.info("Vulnerabilities assigned to components")
-
-        # honour VEX: drop suppressed vulnerabilities unless DTRG_INCLUDE_SUPPRESSED=true
-        include_suppressed = os.getenv("DTRG_INCLUDE_SUPPRESSED",
-                                       "false").lower() in ["true", "1", "t"]
-        suppressed_count = 0
-        for value in components.values():
-            kept = []
-            for vuln in value["vulnerabilities"]:
-                if vuln["is_suppressed"]:
-                    suppressed_count += 1
-                    if not include_suppressed:
-                        continue
-                kept.append(vuln)
-            value["vulnerabilities"] = kept
-        project_info["suppressedCount"] = suppressed_count
-        logger.info(f"VEX-suppressed vulnerabilities: {suppressed_count} "
-                    f"(included in report: {include_suppressed})")
-
-        # set severity to vulnerable components
-        logger.info("Computing final severity levels for components")
-        for component, value in components.items():
-            vulns = value.get("vulnerabilities")
-            if vulns:
-                if os.getenv("CVEPAAS_URL"):
-                    severity_level, severity = get_severity(list(x.get("priority").lower()
-                                                                 for x in vulns))
-                else:
-                    severity_level, severity = get_severity(list(x.get("severity")
-                                                                 for x in vulns))
-                components[component]["severity"] = severity
-                components[component]["severity_level"] = severity_level
-        vuln_components = {k: v for k, v in components.items() if v.get("vulnerabilities")}
-        vuln_components = list((dict(sorted(vuln_components.items(),
-                                      key=lambda item: item[1]["severity_level"],
-                                      reverse=True))).values())
+        _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc)
+        _filter_suppressed(components, project_info)
+        _compute_severity(components)
+        vuln_components = _sort_vulnerable(components)
         logger.info(f"{len(vuln_components)} vulnerable components found")
 
         # populate graph_level on each component before rendering the reports
