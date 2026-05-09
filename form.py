@@ -3,7 +3,14 @@
 import os
 
 from flask_wtf import FlaskForm
-from wtforms import PasswordField, SelectField, StringField, SubmitField, validators
+from wtforms import (
+    BooleanField,
+    PasswordField,
+    SelectField,
+    StringField,
+    SubmitField,
+    validators,
+)
 
 
 # Sentinel render_kw applied to URL/Token when the corresponding DTRG_*
@@ -23,6 +30,10 @@ class GetReportForm(FlaskForm):
     project = SelectField("Project",
         choices=[("", "")],
         validators=[validators.InputRequired()])
+    compare = BooleanField("Compare with another version")
+    project_b = SelectField("Project B",
+        choices=[("", "")],
+        validators=[validators.Optional()])
     submit = SubmitField("Get report")
 
     def __init__(self, *args, **kwargs):

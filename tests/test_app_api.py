@@ -244,3 +244,44 @@ def test_apidocs_ui_renders(client):
     assert res.status_code == 200
     # Swagger UI ships a static index that mentions swagger
     assert b"swagger" in res.data.lower()
+
+
+# /api/v1/reports/diff
+
+def test_api_diff_unauthorized_without_key(client):
+    res = client.post("/api/v1/reports/diff",
+                      data=json.dumps({"projectA": "a", "projectB": "b"}),
+                      content_type="application/json")
+    assert res.status_code == 401
+
+
+def test_api_diff_400_on_missing_url(client):
+    """ Past auth, the resolver complains about empty URL """
+    res = client.post("/api/v1/reports/diff",
+                      headers={"X-DTRG-Key": "secret"},
+                      data=json.dumps({"projectA": "a", "projectB": "b"}),
+                      content_type="application/json")
+    assert res.status_code == 400
+
+
+def test_api_diff_passes_two_uuids_into_create_diff_report(client):
+    """ Both project ids reach the backend's create_diff_report call """
+    with patch.object(app_module, "create_diff_report",
+                      return_value=("diff demo (07.05.2026)", None)) as mocked, \
+         patch.object(app_module, "_create_zip",
+                      return_value="/tmp/dtrg-x/reports.zip"), \
+         patch.object(app_module, "send_file",
+                      return_value=app_module.Response("", status=200,
+                                                       mimetype="application/zip")):
+        client.post("/api/v1/reports/diff",
+                    headers={"X-DTRG-Key": "secret"},
+                    data=json.dumps({"url": "https://example.com",
+                                     "token": "t",
+                                     "projectA": "uuid-a",
+                                     "projectB": "uuid-b"}),
+                    content_type="application/json")
+    args, _ = mocked.call_args
+    config_a, config_b, _ = args
+    assert config_a["project"] == ["uuid-a"]
+    assert config_b["project"] == ["uuid-b"]
+    assert config_a["url"] == config_b["url"] == ["https://example.com"]

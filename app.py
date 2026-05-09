@@ -29,7 +29,7 @@ from werkzeug.utils import secure_filename
 from backend.dependency_graph import get_graph
 from backend.param_validators import projects_page_size
 from backend.projects import get_projects
-from backend.reports import create_report
+from backend.reports import create_diff_report, create_report
 from form import GetReportForm
 
 # Logging setup
@@ -38,7 +38,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
@@ -206,6 +206,16 @@ def _build_report(config, output_dir):
         return None, "Failed to build report archive"
     return zip_path, report
 
+def _build_diff(config_a, config_b, output_dir):
+    """ Run create_diff_report + zip and return (zip_path, name_or_error) """
+    report, _ = create_diff_report(config_a, config_b, output_dir)
+    if not isinstance(report, str):
+        return None, report
+    zip_path = _create_zip(output_dir, with_graph=False)
+    if not zip_path:
+        return None, "Failed to build report archive"
+    return zip_path, report
+
 @app.route("/reports/get_report", methods=["POST"])
 def get_report():
     """Browser form submission. Prefer /api/v1/reports/get_report from CI.
@@ -332,6 +342,160 @@ def get_report_api():
     zip_path, report = _build_report(config, output_dir)
     if not zip_path:
         logger.error(f"API report generation failed: {report}")
+        return jsonify(error=_GENERIC_REPORT_FAILURE), 400
+    return send_file(zip_path, as_attachment=True,
+                     download_name=_safe_download_name(report),
+                     mimetype="application/zip")
+
+@app.route("/reports/diff", methods=["POST"])
+def get_diff_report():
+    """Browser form submission for a project-version diff.
+    ---
+    tags:
+      - browser
+    consumes:
+      - application/x-www-form-urlencoded
+    produces:
+      - application/zip
+      - text/html
+    parameters:
+      - in: formData
+        name: csrf_token
+        required: true
+        type: string
+      - in: formData
+        name: url
+        type: string
+      - in: formData
+        name: token
+        type: string
+      - in: formData
+        name: project
+        type: string
+        description: 'Project A: "name version (uuid)" as produced by the form select.'
+      - in: formData
+        name: project_b
+        type: string
+        description: 'Project B: same shape; the diff is "from A to B".'
+    responses:
+      200:
+        description: ZIP archive with the diff result.xlsx and summary.json.
+      302:
+        description: Redirect back to the form on validation failure.
+      400:
+        description: CSRF token missing or invalid.
+    """
+    logger.info("Received request to generate diff report")
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
+    data = request.form.to_dict(flat=False)
+    logger.debug(f"Diff form data received: {_redact(data)}")
+    config_a = {
+        "url": data.get("url"),
+        "token": data.get("token"),
+        "project": data.get("project"),
+    }
+    config_b = {
+        "url": data.get("url"),
+        "token": data.get("token"),
+        "project": data.get("project_b"),
+    }
+    zip_path, report = _build_diff(config_a, config_b, output_dir)
+    if zip_path:
+        logger.info("Diff report generation successful. Sending ZIP file")
+        return send_file(zip_path, as_attachment=True,
+                         download_name=_safe_download_name(report))
+    logger.error(f"Diff report generation failed: {report}")
+    flash(_GENERIC_REPORT_FAILURE, "danger")
+    return redirect(url_for("index"))
+
+@app.route("/api/v1/reports/diff", methods=["POST"])
+@csrf.exempt
+@require_api_key
+def get_diff_report_api():
+    """Generate a diff report between two DT projects and return it as a ZIP.
+    ---
+    tags:
+      - api
+    security:
+      - ApiKey: []
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/zip
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - projectA
+            - projectB
+          properties:
+            url:
+              type: string
+              description: DT instance URL. Optional when DTRG_URL is set.
+            token:
+              type: string
+              description: DT API key. Optional when DTRG_TOKEN is set.
+            projectA:
+              type: string
+              description: Baseline DT project UUID.
+              example: 00000000-0000-0000-0000-000000000001
+            projectB:
+              type: string
+              description: Comparison DT project UUID; diff is "from A to B".
+              example: 00000000-0000-0000-0000-000000000002
+    responses:
+      200:
+        description: ZIP archive with the diff result.xlsx and summary.json.
+      400:
+        description: Validation error (missing field or upstream rejected).
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+      401:
+        description: DTRG_API_KEY is set and the request did not present it.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: unauthorized
+    """
+    logger.info("Received API request to generate diff report")
+    body = request.get_json(silent=True) or {}
+    if not body and request.form:
+        body = request.form.to_dict(flat=True)
+    base = {k: [str(body[k])] for k in ("url", "token") if body.get(k)}
+    config_a = dict(base)
+    config_b = dict(base)
+    if body.get("projectA"):
+        config_a["project"] = [str(body["projectA"])]
+    if body.get("projectB"):
+        config_b["project"] = [str(body["projectB"])]
+    logger.debug(f"API diff request: {_redact(config_a)} vs {_redact(config_b)}")
+
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
+    zip_path, report = _build_diff(config_a, config_b, output_dir)
+    if not zip_path:
+        logger.error(f"API diff report generation failed: {report}")
         return jsonify(error=_GENERIC_REPORT_FAILURE), 400
     return send_file(zip_path, as_attachment=True,
                      download_name=_safe_download_name(report),

@@ -8,8 +8,8 @@ from datetime import datetime
 
 import requests
 from docxtpl import DocxTemplate, RichText
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font
 
 from backend.dependency_graph import compute_graph_levels
 from backend.param_validators import (
@@ -211,7 +211,7 @@ _SUPPRESSED_STATES = {"resolved", "resolved_with_pedigree",
                       "false_positive", "not_affected"}
 
 
-def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
+def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=None):
     """ Distribute vulnerabilities across components, with VEX + CVE-PaaS data.
 
     For every (vuln, affected component) pair we resolve the analysis state
@@ -219,7 +219,8 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
     build the per-vuln link, optionally enrich the entry from CVE-PaaS for
     canonical CVE ids, and append the result to the component's
     vulnerabilities list. The doc handle is needed for docxtpl's hyperlink
-    builder.
+    builder; pass None when only xlsx/json output is wanted (e.g. diff
+    reports) and word_link will fall back to the plain id.
     """
     logger.info("Processing component vulnerabilities")
     for vuln in vulnerabilities:
@@ -241,22 +242,23 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
                 finding_analysis.get("is_suppressed", False)
                 or analysis_state in _SUPPRESSED_STATES
             )
-            vuln_word_link = RichText()
             if "cve" in vuln_id.lower():
                 vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
-                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
                 # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
                 cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
                                                  vuln_id, re.IGNORECASE) else ""
             elif "ghsa" in vuln_id.lower():
                 vuln_link = "https://github.com/advisories/"+vuln_id
-                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
 # https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
                 cve_id = ""
             else:
                 vuln_link = vuln_id
-                vuln_word_link = vuln_id
                 cve_id = ""
+            if doc is not None and vuln_link != vuln_id:
+                vuln_word_link = RichText()
+                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+            else:
+                vuln_word_link = vuln_id
             severity_level, severity = get_severity(list(x.get("severity")
                                                          for x in vuln.get("ratings")))
             cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
@@ -421,6 +423,99 @@ def _render_summary(project_name_str, project_url, project_info,
     logger.info("JSON summary saved")
 
 
+def compute_diff(data_a, data_b):
+    """ Compute added / removed / common vulnerabilities between two snapshots.
+
+    Each entry in vuln_components carries a name, group and a list of vulns.
+    Identity for matching is (component_name, component_group, vuln_id) -
+    component version is part of the value, not the key, so a CVE whose host
+    component got upgraded between A and B (but whose id is unchanged) shows
+    up under "common" with both versions visible. data_a and data_b are
+    _load_project return values.
+
+    Returns {"added": [...], "removed": [...], "common": [...]}.
+    """
+    def _index(data):
+        idx = {}
+        for component in data["vuln_components"]:
+            for vuln in component["vulnerabilities"]:
+                key = (component.get("name"), component.get("group") or "",
+                       vuln.get("id"))
+                idx[key] = (component, vuln)
+        return idx
+
+    def _entry(component, vuln):
+        return {
+            "component": component.get("name"),
+            "group": component.get("group") or "",
+            "componentVersion": component.get("version"),
+            "vulnerability": vuln.get("id"),
+            "link": vuln.get("link"),
+            "severity": vuln.get("severity"),
+            "priority": vuln.get("priority"),
+            "analysisState": vuln.get("analysis_state") or "",
+            "isSuppressed": bool(vuln.get("is_suppressed", False)),
+        }
+
+    idx_a = _index(data_a)
+    idx_b = _index(data_b)
+    keys_a = set(idx_a.keys())
+    keys_b = set(idx_b.keys())
+
+    added = [_entry(*idx_b[k]) for k in sorted(keys_b - keys_a)]
+    removed = [_entry(*idx_a[k]) for k in sorted(keys_a - keys_b)]
+    common = []
+    for key in sorted(keys_a & keys_b):
+        ca, va = idx_a[key]
+        cb, vb = idx_b[key]
+        common.append({
+            "component": ca.get("name"),
+            "group": ca.get("group") or "",
+            "componentVersionA": ca.get("version"),
+            "componentVersionB": cb.get("version"),
+            "vulnerability": va.get("id"),
+            "link": vb.get("link") or va.get("link"),
+            "severity": vb.get("severity"),
+            "priority": vb.get("priority"),
+            "analysisStateA": va.get("analysis_state") or "",
+            "analysisStateB": vb.get("analysis_state") or "",
+            "isSuppressedA": bool(va.get("is_suppressed", False)),
+            "isSuppressedB": bool(vb.get("is_suppressed", False)),
+        })
+    return {"added": added, "removed": removed, "common": common}
+
+
+def _load_project(url, headers, project, doc=None):
+    """ Run the full per-project pipeline and return everything renderers need.
+
+    Stitches together the four DT fetches and the four processing helpers
+    so callers (single-project create_report, two-project diff) do not
+    repeat the orchestration. doc is forwarded to _attach_vulnerabilities
+    for RichText hyperlinks; pass None when no docx output is needed.
+
+    Returns a dict with keys: info, name, url, components, vuln_components.
+    """
+    project_info, project_name_str, direct_uuids = _fetch_project_info(
+        url, headers, project)
+    vulnerabilities, deps_deps = _fetch_sbom(url, headers, project)
+    analysis_by_pair = _fetch_findings(url, headers, project)
+    components = _fetch_components(url, headers, project,
+                                   direct_uuids, deps_deps)
+    _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc)
+    _filter_suppressed(components, project_info)
+    _compute_severity(components)
+    vuln_components = _sort_vulnerable(components)
+    logger.info(f"{len(vuln_components)} vulnerable components found")
+    compute_graph_levels(components)
+    return {
+        "info": project_info,
+        "name": project_name_str,
+        "url": url.split("api/v1/")[0] + "projects/" + project,
+        "components": components,
+        "vuln_components": vuln_components,
+    }
+
+
 def create_report(config, output_dir):
     """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
@@ -429,31 +524,179 @@ def create_report(config, output_dir):
 
     try:
         url, headers, project = _resolve_params(config)
-        project_info, project_name_str, direct_uuids = _fetch_project_info(
-            url, headers, project)
-        vulnerabilities, deps_deps = _fetch_sbom(url, headers, project)
-        analysis_by_pair = _fetch_findings(url, headers, project)
-        components = _fetch_components(url, headers, project,
-                                       direct_uuids, deps_deps)
+        data = _load_project(url, headers, project, doc=doc)
 
-        _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc)
-        _filter_suppressed(components, project_info)
-        _compute_severity(components)
-        vuln_components = _sort_vulnerable(components)
-        logger.info(f"{len(vuln_components)} vulnerable components found")
-        compute_graph_levels(components)
+        _render_docx(doc, data["info"], data["name"], data["url"],
+                     data["vuln_components"], output_dir)
+        _render_xlsx(excel, data["info"], data["name"], data["url"],
+                     data["vuln_components"], output_dir)
+        _render_summary(data["name"], data["url"], data["info"],
+                        data["vuln_components"], output_dir)
 
-        project_url = url.split("api/v1/")[0] + "projects/" + project
-        _render_docx(doc, project_info, project_name_str, project_url,
-                     vuln_components, output_dir)
-        _render_xlsx(excel, project_info, project_name_str, project_url,
-                     vuln_components, output_dir)
-        _render_summary(project_name_str, project_url, project_info,
-                        vuln_components, output_dir)
-
-        report_name = project_name_str or project
-        return (f"{report_name} {project_info.get('version')} "
-                f"({datetime.now().strftime('%d.%m.%Y')})", components)
+        report_name = data["name"] or project
+        return (f"{report_name} {data['info'].get('version')} "
+                f"({datetime.now().strftime('%d.%m.%Y')})", data["components"])
     except (ValueError, ConnectionError) as e:
         logger.error(f"Error while generating report: {e}")
         return e, []
+
+
+def _project_summary(data):
+    """ Trim a _load_project dict down to the JSON-serializable bits """
+    info = data["info"]
+    return {
+        "name": data["name"],
+        "version": info.get("version"),
+        "url": data["url"],
+        "lastBomImport": info.get("lastBomImport"),
+        "componentsCount": info.get("componentsCount"),
+        "vulnerableComponentsCount": info.get("vulnComponentsCount"),
+        "vulnerabilitiesCount": info.get("vulnsCount"),
+        "suppressedCount": info.get("suppressedCount", 0),
+    }
+
+
+def _render_diff_xlsx(diff, data_a, data_b, output_dir):
+    """ Build the diff Excel from scratch (no template).
+
+    Sheets: General information (both project metadatas + counts),
+    Added (vulns new in B), Removed (vulns gone from A), Common
+    (vulns in both, possibly with version changes).
+    """
+    logger.info("Generating diff Excel report")
+    wb = Workbook()
+    bold = Font(bold=True)
+
+    ws = wb.active
+    ws.title = "General information"
+    ws["A1"] = ""
+    ws["B1"] = "Project A"
+    ws["B1"].font = bold
+    ws["C1"] = "Project B"
+    ws["C1"].font = bold
+    rows = [
+        ("Name", data_a["name"], data_b["name"]),
+        ("Version", data_a["info"].get("version"), data_b["info"].get("version")),
+        ("Last BOM import",
+         data_a["info"].get("lastBomImport"), data_b["info"].get("lastBomImport")),
+        ("URL", data_a["url"], data_b["url"]),
+        ("Components", data_a["info"].get("componentsCount"),
+         data_b["info"].get("componentsCount")),
+        ("Vulnerable components", data_a["info"].get("vulnComponentsCount"),
+         data_b["info"].get("vulnComponentsCount")),
+        ("Vulnerabilities", data_a["info"].get("vulnsCount"),
+         data_b["info"].get("vulnsCount")),
+    ]
+    for i, (label, a, b) in enumerate(rows, start=2):
+        ws.cell(row=i, column=1, value=label).font = bold
+        ws.cell(row=i, column=2, value=a)
+        ws.cell(row=i, column=3, value=b)
+    summary_row = len(rows) + 3
+    ws.cell(row=summary_row, column=1, value="Diff").font = bold
+    ws.cell(row=summary_row+1, column=1, value="Added")
+    ws.cell(row=summary_row+1, column=2, value=len(diff["added"]))
+    ws.cell(row=summary_row+2, column=1, value="Removed")
+    ws.cell(row=summary_row+2, column=2, value=len(diff["removed"]))
+    ws.cell(row=summary_row+3, column=1, value="Common")
+    ws.cell(row=summary_row+3, column=2, value=len(diff["common"]))
+    ws.cell(row=summary_row+4, column=1, value="Generated at")
+    ws.cell(row=summary_row+4, column=2, value=datetime.now().strftime("%d.%m.%Y %H:%M"))
+
+    def _fill_simple(sheet_name, entries):
+        sheet = wb.create_sheet(sheet_name)
+        headers = ["#", "Component", "Group", "Component version",
+                   "Vulnerability", "Severity", "Priority", "Analysis state",
+                   "Link"]
+        for col, header in enumerate(headers, start=1):
+            cell = sheet.cell(row=1, column=col, value=header)
+            cell.font = bold
+        for i, entry in enumerate(entries, start=2):
+            sheet.cell(row=i, column=1, value=i-1)
+            sheet.cell(row=i, column=2, value=entry["component"])
+            sheet.cell(row=i, column=3, value=entry["group"])
+            sheet.cell(row=i, column=4, value=str(entry["componentVersion"]))
+            cell = sheet.cell(row=i, column=5, value=entry["vulnerability"])
+            link = entry.get("link") or ""
+            if link.startswith("http"):
+                cell.hyperlink = link
+            sheet.cell(row=i, column=6, value=entry["severity"])
+            sheet.cell(row=i, column=7,
+                       value=(entry.get("priority") or "").lower())
+            sheet.cell(row=i, column=8, value=entry["analysisState"])
+            sheet.cell(row=i, column=9, value=link)
+
+    _fill_simple("Added", diff["added"])
+    _fill_simple("Removed", diff["removed"])
+
+    sheet = wb.create_sheet("Common")
+    headers = ["#", "Component", "Group", "Version A", "Version B",
+               "Vulnerability", "Severity", "Priority",
+               "Analysis state A", "Analysis state B", "Link"]
+    for col, header in enumerate(headers, start=1):
+        sheet.cell(row=1, column=col, value=header).font = bold
+    for i, entry in enumerate(diff["common"], start=2):
+        sheet.cell(row=i, column=1, value=i-1)
+        sheet.cell(row=i, column=2, value=entry["component"])
+        sheet.cell(row=i, column=3, value=entry["group"])
+        sheet.cell(row=i, column=4, value=str(entry["componentVersionA"]))
+        sheet.cell(row=i, column=5, value=str(entry["componentVersionB"]))
+        cell = sheet.cell(row=i, column=6, value=entry["vulnerability"])
+        link = entry.get("link") or ""
+        if link.startswith("http"):
+            cell.hyperlink = link
+        sheet.cell(row=i, column=7, value=entry["severity"])
+        sheet.cell(row=i, column=8, value=(entry.get("priority") or "").lower())
+        sheet.cell(row=i, column=9, value=entry["analysisStateA"])
+        sheet.cell(row=i, column=10, value=entry["analysisStateB"])
+        sheet.cell(row=i, column=11, value=link)
+
+    wb.save(os.path.join(output_dir, "result.xlsx"))
+    logger.info("Diff Excel report saved")
+
+
+def _render_diff_summary(diff, data_a, data_b, output_dir):
+    """ Write the JSON summary for a diff report """
+    summary = {
+        "schemaVersion": SUMMARY_SCHEMA_VERSION,
+        "kind": "diff",
+        "generatedAt": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "projectA": _project_summary(data_a),
+        "projectB": _project_summary(data_b),
+        "diff": diff,
+    }
+    with open(os.path.join(output_dir, "summary.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
+    logger.info("Diff JSON summary saved")
+
+
+def create_diff_report(config_a, config_b, output_dir):
+    """ Generate a diff report between two DT projects.
+
+    config_a / config_b have the same shape as create_report's config
+    (url / token / project), so the route layer can just split a single
+    request into two configs (same URL, same token, two project IDs).
+    Returns (report_name, None) on success, (exception, None) on failure -
+    None matches create_report's "no graph for this report" signal.
+    """
+    logger.info("Diff report generation started")
+    try:
+        url_a, headers_a, project_a = _resolve_params(config_a)
+        url_b, headers_b, project_b = _resolve_params(config_b)
+        data_a = _load_project(url_a, headers_a, project_a)
+        data_b = _load_project(url_b, headers_b, project_b)
+        diff = compute_diff(data_a, data_b)
+        logger.info(f"Diff computed: +{len(diff['added'])} added, "
+                    f"-{len(diff['removed'])} removed, "
+                    f"={len(diff['common'])} common")
+        _render_diff_xlsx(diff, data_a, data_b, output_dir)
+        _render_diff_summary(diff, data_a, data_b, output_dir)
+        name_a = data_a["name"] or project_a
+        name_b = data_b["name"] or project_b
+        ver_a = data_a["info"].get("version") or ""
+        ver_b = data_b["info"].get("version") or ""
+        return (f"diff {name_a} {ver_a} vs {name_b} {ver_b} "
+                f"({datetime.now().strftime('%d.%m.%Y')})", None)
+    except (ValueError, ConnectionError) as e:
+        logger.error(f"Error while generating diff report: {e}")
+        return e, None
