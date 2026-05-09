@@ -423,6 +423,68 @@ def _render_summary(project_name_str, project_url, project_info,
     logger.info("JSON summary saved")
 
 
+def compute_diff(data_a, data_b):
+    """ Compute added / removed / common vulnerabilities between two snapshots.
+
+    Each entry in vuln_components carries a name, group and a list of vulns.
+    Identity for matching is (component_name, component_group, vuln_id) -
+    component version is part of the value, not the key, so a CVE whose host
+    component got upgraded between A and B (but whose id is unchanged) shows
+    up under "common" with both versions visible. data_a and data_b are
+    _load_project return values.
+
+    Returns {"added": [...], "removed": [...], "common": [...]}.
+    """
+    def _index(data):
+        idx = {}
+        for component in data["vuln_components"]:
+            for vuln in component["vulnerabilities"]:
+                key = (component.get("name"), component.get("group") or "",
+                       vuln.get("id"))
+                idx[key] = (component, vuln)
+        return idx
+
+    def _entry(component, vuln):
+        return {
+            "component": component.get("name"),
+            "group": component.get("group") or "",
+            "componentVersion": component.get("version"),
+            "vulnerability": vuln.get("id"),
+            "link": vuln.get("link"),
+            "severity": vuln.get("severity"),
+            "priority": vuln.get("priority"),
+            "analysisState": vuln.get("analysis_state") or "",
+            "isSuppressed": bool(vuln.get("is_suppressed", False)),
+        }
+
+    idx_a = _index(data_a)
+    idx_b = _index(data_b)
+    keys_a = set(idx_a.keys())
+    keys_b = set(idx_b.keys())
+
+    added = [_entry(*idx_b[k]) for k in sorted(keys_b - keys_a)]
+    removed = [_entry(*idx_a[k]) for k in sorted(keys_a - keys_b)]
+    common = []
+    for key in sorted(keys_a & keys_b):
+        ca, va = idx_a[key]
+        cb, vb = idx_b[key]
+        common.append({
+            "component": ca.get("name"),
+            "group": ca.get("group") or "",
+            "componentVersionA": ca.get("version"),
+            "componentVersionB": cb.get("version"),
+            "vulnerability": va.get("id"),
+            "link": vb.get("link") or va.get("link"),
+            "severity": vb.get("severity"),
+            "priority": vb.get("priority"),
+            "analysisStateA": va.get("analysis_state") or "",
+            "analysisStateB": vb.get("analysis_state") or "",
+            "isSuppressedA": bool(va.get("is_suppressed", False)),
+            "isSuppressedB": bool(vb.get("is_suppressed", False)),
+        })
+    return {"added": added, "removed": removed, "common": common}
+
+
 def _load_project(url, headers, project, doc=None):
     """ Run the full per-project pipeline and return everything renderers need.
 
