@@ -46,6 +46,16 @@ curl -fsSL \
     http://dtrg.internal:5000/api/v1/projects | jq '.[] | {name, version, uuid}'
 ```
 Need to filter or paginate? Pass `searchText`, `pageSize` and `pageNumber` in the JSON body. Total matches come back in the `X-Total-Count` response header. Without those fields the endpoint returns the full list as before.
+
+Diff between two versions of the same project:
+```
+curl -fSL -o diff.zip \
+    -H "X-DTRG-Key: $DTRG_API_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"projectA":"<old-uuid>","projectB":"<new-uuid>"}' \
+    http://dtrg.internal:5000/api/v1/reports/diff
+```
+The ZIP contains `result.xlsx` (sheets: General information, Added, Removed, Common) and `summary.json` (`kind: "diff"`). Common entries surface both component versions and both VEX states so a CVE that travelled with a library upgrade is visible.
 Notes:
 - `url` and `token` can be omitted from the request body when `DTRG_URL` and `DTRG_TOKEN` are set in the dtrg environment.
 - The endpoints are open by default. When the service is reachable beyond a trusted network, set `DTRG_API_KEY` so requests must present the same key in the `X-DTRG-Key` (or `Authorization: Bearer ...`) header.
@@ -122,8 +132,10 @@ Planned functionality:
 
 - [x] *Quick wins (2.1.0)*. `summary.json` bundled in the report ZIP; multi-arch Docker (`linux/amd64`+`linux/arm64`); CI matrix Python 3.11/3.12/3.13; per-request env in `GetReportForm`.
 
+- [x] *Diff between project versions (2.2.0)*. New endpoints `/reports/diff` and `/api/v1/reports/diff`; checkbox on the form reveals the second project select. ZIP carries `result.xlsx` + `summary.json` describing what was added, removed or stayed common.
+
 ### Next up
-- [ ] *Diff between project versions*. Show what vulnerabilities appeared, disappeared and changed between two versions of the same DT project. (Targeted for 2.2.0.)
+- [ ] *Diff docx template*. Word version of the diff report once a `draft_diff.docx` is designed; xlsx is the only renderer for diff today.
 
 ### CVE-PaaS collaboration
 Caching is intentionally out of scope here — CVE-PaaS owns it on its side.
