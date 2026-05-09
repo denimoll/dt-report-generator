@@ -22,6 +22,24 @@ def test_index_renders(client):
     assert b"Get report" in response.data
 
 
+def test_health_returns_status_and_version(client):
+    """ /health is the Docker/k8s probe target. Must work without auth. """
+    response = client.get("/health")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["status"] == "ok"
+    assert body["version"] == app_module.__version__
+
+
+def test_health_does_not_require_api_key(monkeypatch):
+    """ Probe must succeed even when DTRG_API_KEY is set. """
+    monkeypatch.setenv("DTRG_API_KEY", "secret")
+    app_module.app.config.update(TESTING=True)
+    with app_module.app.test_client() as c:
+        response = c.get("/health")  # no key supplied
+    assert response.status_code == 200
+
+
 # require_api_key
 
 def test_api_reports_unauthorized_without_key(client):
