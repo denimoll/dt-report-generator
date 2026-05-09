@@ -211,7 +211,7 @@ _SUPPRESSED_STATES = {"resolved", "resolved_with_pedigree",
                       "false_positive", "not_affected"}
 
 
-def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
+def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=None):
     """ Distribute vulnerabilities across components, with VEX + CVE-PaaS data.
 
     For every (vuln, affected component) pair we resolve the analysis state
@@ -219,7 +219,8 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
     build the per-vuln link, optionally enrich the entry from CVE-PaaS for
     canonical CVE ids, and append the result to the component's
     vulnerabilities list. The doc handle is needed for docxtpl's hyperlink
-    builder.
+    builder; pass None when only xlsx/json output is wanted (e.g. diff
+    reports) and word_link will fall back to the plain id.
     """
     logger.info("Processing component vulnerabilities")
     for vuln in vulnerabilities:
@@ -241,22 +242,23 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc):
                 finding_analysis.get("is_suppressed", False)
                 or analysis_state in _SUPPRESSED_STATES
             )
-            vuln_word_link = RichText()
             if "cve" in vuln_id.lower():
                 vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
-                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
                 # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
                 cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
                                                  vuln_id, re.IGNORECASE) else ""
             elif "ghsa" in vuln_id.lower():
                 vuln_link = "https://github.com/advisories/"+vuln_id
-                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
 # https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
                 cve_id = ""
             else:
                 vuln_link = vuln_id
-                vuln_word_link = vuln_id
                 cve_id = ""
+            if doc is not None and vuln_link != vuln_id:
+                vuln_word_link = RichText()
+                vuln_word_link.add(vuln_id, url_id=doc.build_url_id(vuln_link))
+            else:
+                vuln_word_link = vuln_id
             severity_level, severity = get_severity(list(x.get("severity")
                                                          for x in vuln.get("ratings")))
             cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
@@ -421,6 +423,37 @@ def _render_summary(project_name_str, project_url, project_info,
     logger.info("JSON summary saved")
 
 
+def _load_project(url, headers, project, doc=None):
+    """ Run the full per-project pipeline and return everything renderers need.
+
+    Stitches together the four DT fetches and the four processing helpers
+    so callers (single-project create_report, two-project diff) do not
+    repeat the orchestration. doc is forwarded to _attach_vulnerabilities
+    for RichText hyperlinks; pass None when no docx output is needed.
+
+    Returns a dict with keys: info, name, url, components, vuln_components.
+    """
+    project_info, project_name_str, direct_uuids = _fetch_project_info(
+        url, headers, project)
+    vulnerabilities, deps_deps = _fetch_sbom(url, headers, project)
+    analysis_by_pair = _fetch_findings(url, headers, project)
+    components = _fetch_components(url, headers, project,
+                                   direct_uuids, deps_deps)
+    _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc)
+    _filter_suppressed(components, project_info)
+    _compute_severity(components)
+    vuln_components = _sort_vulnerable(components)
+    logger.info(f"{len(vuln_components)} vulnerable components found")
+    compute_graph_levels(components)
+    return {
+        "info": project_info,
+        "name": project_name_str,
+        "url": url.split("api/v1/")[0] + "projects/" + project,
+        "components": components,
+        "vuln_components": vuln_components,
+    }
+
+
 def create_report(config, output_dir):
     """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
@@ -429,31 +462,18 @@ def create_report(config, output_dir):
 
     try:
         url, headers, project = _resolve_params(config)
-        project_info, project_name_str, direct_uuids = _fetch_project_info(
-            url, headers, project)
-        vulnerabilities, deps_deps = _fetch_sbom(url, headers, project)
-        analysis_by_pair = _fetch_findings(url, headers, project)
-        components = _fetch_components(url, headers, project,
-                                       direct_uuids, deps_deps)
+        data = _load_project(url, headers, project, doc=doc)
 
-        _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc)
-        _filter_suppressed(components, project_info)
-        _compute_severity(components)
-        vuln_components = _sort_vulnerable(components)
-        logger.info(f"{len(vuln_components)} vulnerable components found")
-        compute_graph_levels(components)
+        _render_docx(doc, data["info"], data["name"], data["url"],
+                     data["vuln_components"], output_dir)
+        _render_xlsx(excel, data["info"], data["name"], data["url"],
+                     data["vuln_components"], output_dir)
+        _render_summary(data["name"], data["url"], data["info"],
+                        data["vuln_components"], output_dir)
 
-        project_url = url.split("api/v1/")[0] + "projects/" + project
-        _render_docx(doc, project_info, project_name_str, project_url,
-                     vuln_components, output_dir)
-        _render_xlsx(excel, project_info, project_name_str, project_url,
-                     vuln_components, output_dir)
-        _render_summary(project_name_str, project_url, project_info,
-                        vuln_components, output_dir)
-
-        report_name = project_name_str or project
-        return (f"{report_name} {project_info.get('version')} "
-                f"({datetime.now().strftime('%d.%m.%Y')})", components)
+        report_name = data["name"] or project
+        return (f"{report_name} {data['info'].get('version')} "
+                f"({datetime.now().strftime('%d.%m.%Y')})", data["components"])
     except (ValueError, ConnectionError) as e:
         logger.error(f"Error while generating report: {e}")
         return e, []
