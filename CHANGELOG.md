@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0]
+
+### Added
+
+- `summary.json` bundled in every report ZIP next to `result.docx` / `result.xlsx`. Carries the project metadata and the vulnerable-components list in a JSON-serializable shape (versioned via `schemaVersion: 1`) so CI pipelines can do severity gates, dashboards or diffing without parsing Office files.
+- Docker images now publish for `linux/amd64` **and** `linux/arm64`. Apple Silicon dev machines and arm SBCs (Raspberry Pi, Ampere) get a native image instead of QEMU emulation.
+
+### Changed
+
+- `pytest` runs in CI against Python 3.11, 3.12 and 3.13 (was only 3.12).
+- `GetReportForm` reads `DTRG_URL` / `DTRG_TOKEN` per request inside `__init__` rather than at class definition time, so flipping the env at runtime takes effect on the next form render without restarting the process.
+
 ## [2.0.0]
 
 ### Breaking changes
