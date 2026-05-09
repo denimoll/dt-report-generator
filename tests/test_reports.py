@@ -67,6 +67,8 @@ def _payloads_with_vex():
     return [
         # check_token probe — exact endswith /project (no trailing slash or uuid)
         (lambda u: u.endswith("/project"), []),
+        # findings API: empty in this fixture, all analysis carried in SBOM
+        ("finding/project", []),
         # SBOM with mixed analysis states
         ("bom/cyclonedx", {
             "vulnerabilities": [
@@ -182,6 +184,57 @@ def test_create_report_extracts_uuid_from_form_value(monkeypatch):
                       side_effect=_fake_dt_get(_payloads_with_vex())):
         report, _ = reports.create_report(cfg, td)
     assert isinstance(report, str)
+
+
+def _payloads_findings_only():
+    """ DT export without VEX in SBOM but a false-positive marked in the UI """
+    return [
+        (lambda u: u.endswith("/project"), []),
+        ("finding/project", [
+            {"vulnerability": {"vulnId": "CVE-2024-9999", "uuid": "v-uuid"},
+             "component": {"uuid": "c1", "name": "libA"},
+             "analysis": {"state": "FALSE_POSITIVE", "isSuppressed": True}},
+        ]),
+        ("bom/cyclonedx", {
+            "vulnerabilities": [
+                {"bom-ref": "v-uuid", "id": "CVE-2024-9999",
+                 "ratings": [{"severity": "high"}],
+                 "affects": [{"ref": "c1"}]},
+            ],
+            "dependencies": [{"ref": "c1", "dependsOn": []}],
+        }),
+        ("component/project", [
+            {"uuid": "c1", "name": "libA", "version": "1", "group": "",
+             "repositoryMeta": None},
+        ]),
+        ("/project/", {"name": "demo", "version": "1.0", "metrics": {},
+                       "directDependencies": "[]"}),
+    ]
+
+
+def test_findings_api_supplies_analysis_when_sbom_omits_it(monkeypatch):
+    """ The actual user-reported bug: a FP marked in DT must reach the report """
+    monkeypatch.setenv("DTRG_INCLUDE_SUPPRESSED", "true")
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get",
+                      side_effect=_fake_dt_get(_payloads_findings_only())):
+        report, components = reports.create_report(_config(), td)
+    assert isinstance(report, str)
+    vulns = [v for c in components.values() for v in c["vulnerabilities"]]
+    assert len(vulns) == 1
+    assert vulns[0]["analysis_state"] == "false_positive"
+    assert vulns[0]["is_suppressed"] is True
+
+
+def test_findings_api_filters_fp_by_default(monkeypatch):
+    """ Same setup but default mode drops the FP from the report """
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get",
+                      side_effect=_fake_dt_get(_payloads_findings_only())):
+        _, components = reports.create_report(_config(), td)
+    vulns = [v for c in components.values() for v in c["vulnerabilities"]]
+    assert vulns == []  # the only finding was a FP and it was filtered
 
 
 def test_create_report_returns_value_error_on_missing_url():
