@@ -150,7 +150,7 @@ def index():
 
 
 # REPORTS GROUP
-def create_zip(output_dir, with_graph=False):
+def _create_zip(output_dir, with_graph=False):
     """ Bundle the rendered files inside output_dir into reports.zip """
     logger.info("Creating ZIP archive with report files")
     zip_path = os.path.join(output_dir, "reports.zip")
@@ -200,8 +200,8 @@ def _build_report(config, output_dir):
     report, components = create_report(config, output_dir)
     if not isinstance(report, str):
         return None, report
-    with_graph = create_graph(components, output_dir) if components else False
-    zip_path = create_zip(output_dir, with_graph)
+    with_graph = _create_graph(components, output_dir) if components else False
+    zip_path = _create_zip(output_dir, with_graph)
     if not zip_path:
         return None, "Failed to build report archive"
     return zip_path, report
@@ -496,7 +496,7 @@ def get_all_projects_api():
 
 
 # GRAPH GROUP
-def create_graph(components, output_dir):
+def _create_graph(components, output_dir):
     """ Render the dependency graph HTML into output_dir """
     logger.info("Generating graph from components")
     graph = get_graph(components)
