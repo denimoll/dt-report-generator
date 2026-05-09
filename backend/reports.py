@@ -336,6 +336,91 @@ def _sort_vulnerable(components):
                             reverse=True)).values())
 
 
+def _render_docx(doc, project_info, project_name_str, project_url,
+                 vuln_components, output_dir):
+    """ Render the Word report into output_dir/result.docx """
+    logger.info("Generating Word report")
+    # decorate the project name with a hyperlink only at render time, so the
+    # data layer above stays free of docxtpl-specific objects
+    project_for_render = dict(project_info)
+    project_link = RichText()
+    project_link.add(project_name_str, url_id=doc.build_url_id(project_url))
+    project_for_render["name"] = project_link
+    doc.render({
+        "project": project_for_render,
+        "components": vuln_components,
+    })
+    doc.save(os.path.join(output_dir, "result.docx"))
+    logger.info("Word report saved")
+
+
+def _render_xlsx(excel, project_info, project_name_str, project_url,
+                 vuln_components, output_dir):
+    """ Render the Excel report into output_dir/result.xlsx """
+    logger.info("Generating Excel report")
+    ws1 = excel["General information"]
+    ws1["D2"].value = (project_name_str + " (version: "
+                       + project_info.get("version") + ")")
+    ws1["D2"].hyperlink = project_url
+    ws1["D3"] = project_info.get("componentsCount")
+    ws1["D4"] = project_info.get("vulnsCount")
+    ws1["D5"] = project_info.get("vulnComponentsCount")
+    ws1["D6"] = project_info.get("lastBomImport")
+    ws1["D7"] = project_info.get("date")
+    if not vuln_components:
+        del excel["Vulnerable dependencies"]
+        del excel["All issues"]
+        excel.save(os.path.join(output_dir, "result.xlsx"))
+        logger.info("Excel report saved")
+        return
+    ws2 = excel["Vulnerable dependencies"]
+    ws3 = excel["All issues"]
+    vuln_num = 0
+    for num, component in enumerate(vuln_components):
+        ws2.cell(row=num+2, column=1, value=num+1)
+        ws2.cell(row=num+2, column=2, value=component.get("name"))
+        ws2.cell(row=num+2, column=3, value=str(component.get("version")))
+        ws2.cell(row=num+2, column=4, value=component.get("group"))
+        if component.get("is_direct_dependency"):
+            final_severity = f"{str(component.get('severity'))} in direct dependency"
+        else:
+            final_severity = str(component.get("severity"))
+        ws2.cell(row=num+2, column=5, value=final_severity)
+        ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
+        graph_level = component.get("graph_level")
+        ws2.cell(row=num+2, column=7,
+                 value="" if graph_level is None else graph_level)
+        for vuln in component.get("vulnerabilities"):
+            ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
+            ws3.cell(row=num+2+vuln_num, column=2, value=vuln.get("id"))
+            if isinstance(vuln.get("word_link"), RichText):
+                ws3.cell(row=num+2+vuln_num, column=2).hyperlink = vuln.get("link")
+            ws3.cell(row=num+2+vuln_num, column=3, value=vuln.get("severity"))
+            ws3.cell(row=num+2+vuln_num, column=4,
+                     value=(vuln.get("priority") or "").lower())
+            ws3.cell(row=num+2+vuln_num, column=5, value=component.get("name"))
+            ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
+            ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))
+            ws3.cell(row=num+2+vuln_num, column=7).alignment = Alignment(wrap_text=True)
+            ws3.cell(row=num+2+vuln_num, column=8,
+                     value=vuln.get("analysis_state") or "")
+            vuln_num += 1
+        vuln_num -= 1
+    excel.save(os.path.join(output_dir, "result.xlsx"))
+    logger.info("Excel report saved")
+
+
+def _render_summary(project_name_str, project_url, project_info,
+                    vuln_components, output_dir):
+    """ Write the JSON summary alongside the docx/xlsx """
+    summary = _build_summary(project_name_str, project_url,
+                             project_info, vuln_components)
+    with open(os.path.join(output_dir, "summary.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
+    logger.info("JSON summary saved")
+
+
 def create_report(config, output_dir):
     """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
@@ -356,81 +441,16 @@ def create_report(config, output_dir):
         _compute_severity(components)
         vuln_components = _sort_vulnerable(components)
         logger.info(f"{len(vuln_components)} vulnerable components found")
-
-        # populate graph_level on each component before rendering the reports
         compute_graph_levels(components)
 
-        # render and save result in word report
-        logger.info("Generating Word report")
         project_url = url.split("api/v1/")[0] + "projects/" + project
-        # decorate the project name with a hyperlink for the docx output
-        project_for_docx = dict(project_info)
-        project_link = RichText()
-        project_link.add(project_name_str, url_id=doc.build_url_id(project_url))
-        project_for_docx["name"] = project_link
-        doc.render({
-            "project": project_for_docx,
-            "components": vuln_components
-        })
-        doc.save(os.path.join(output_dir, "result.docx"))
-        logger.info("Word report saved")
+        _render_docx(doc, project_info, project_name_str, project_url,
+                     vuln_components, output_dir)
+        _render_xlsx(excel, project_info, project_name_str, project_url,
+                     vuln_components, output_dir)
+        _render_summary(project_name_str, project_url, project_info,
+                        vuln_components, output_dir)
 
-        # render and save result in excel report
-        logger.info("Generating Excel report")
-        ws1 = excel["General information"]
-        ws1["D2"].value = project_name_str + " (version: " + project_info.get("version") + ")"
-        ws1["D2"].hyperlink = url.split("api/v1/")[0]+"projects/"+project
-        ws1["D3"] = project_info.get("componentsCount")
-        ws1["D4"] = project_info.get("vulnsCount")
-        ws1["D5"] = project_info.get("vulnComponentsCount")
-        ws1["D6"] = project_info.get("lastBomImport")
-        ws1["D7"] = project_info.get("date")
-        ws2 = excel["Vulnerable dependencies"]
-        ws3 = excel["All issues"]
-        vuln_num = 0
-        for num, component in enumerate(vuln_components):
-            ws2.cell(row=num+2, column=1, value=num+1)
-            ws2.cell(row=num+2, column=2, value=component.get("name"))
-            ws2.cell(row=num+2, column=3, value=str(component.get("version")))
-            ws2.cell(row=num+2, column=4, value=component.get("group"))
-            if component.get("is_direct_dependency"):
-                final_severity = f"{str(component.get('severity'))} in direct dependency"
-            else:
-                final_severity = str(component.get("severity"))
-            ws2.cell(row=num+2, column=5, value=final_severity)
-            ws2.cell(row=num+2, column=6, value=str(component.get("last_version")))
-            graph_level = component.get("graph_level")
-            ws2.cell(row=num+2, column=7,
-                     value="" if graph_level is None else graph_level)
-            for vuln in component.get("vulnerabilities"):
-                ws3.cell(row=num+2+vuln_num, column=1, value=num+1+vuln_num)
-                ws3.cell(row=num+2+vuln_num, column=2, value=vuln.get("id"))
-                if isinstance(vuln.get("word_link"), RichText):
-                    ws3.cell(row=num+2+vuln_num, column=2).hyperlink=vuln.get("link")
-                ws3.cell(row=num+2+vuln_num, column=3, value=vuln.get("severity"))
-                ws3.cell(row=num+2+vuln_num, column=4, value=(vuln.get("priority") or "").lower())
-                ws3.cell(row=num+2+vuln_num, column=5, value=component.get("name"))
-                ws3.cell(row=num+2+vuln_num, column=6, value=component.get("version"))
-                ws3.cell(row=num+2+vuln_num, column=7, value=vuln.get("add_info"))
-                ws3.cell(row=num+2+vuln_num, column=7).alignment = Alignment(wrap_text=True)
-                ws3.cell(row=num+2+vuln_num, column=8, value=vuln.get("analysis_state") or "")
-                vuln_num += 1
-            vuln_num -= 1
-        if not vuln_components:
-            del excel["Vulnerable dependencies"]
-            del excel["All issues"]
-        excel.save(os.path.join(output_dir, "result.xlsx"))
-        logger.info("Excel report saved")
-
-        # write the JSON summary for downstream tooling
-        summary = _build_summary(project_name_str, project_url,
-                                 project_info, vuln_components)
-        with open(os.path.join(output_dir, "summary.json"), "w",
-                  encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
-        logger.info("JSON summary saved")
-
-        # return
         report_name = project_name_str or project
         return (f"{report_name} {project_info.get('version')} "
                 f"({datetime.now().strftime('%d.%m.%Y')})", components)
