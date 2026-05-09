@@ -1,6 +1,7 @@
 """ Tests for backend.reports """
 
 import json
+import os
 import tempfile
 from unittest.mock import MagicMock, patch
 
@@ -235,6 +236,30 @@ def test_findings_api_filters_fp_by_default(monkeypatch):
         _, components = reports.create_report(_config(), td)
     vulns = [v for c in components.values() for v in c["vulnerabilities"]]
     assert vulns == []  # the only finding was a FP and it was filtered
+
+
+def test_create_report_writes_summary_json(monkeypatch):
+    """ summary.json sits next to result.docx/result.xlsx for CI consumers """
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get",
+                      side_effect=_fake_dt_get(_payloads_with_vex())):
+        reports.create_report(_config(), td)
+        summary_path = os.path.join(td, "summary.json")
+        assert os.path.exists(summary_path)
+        with open(summary_path, encoding="utf-8") as f:
+            summary = json.load(f)
+    assert summary["schemaVersion"] == reports.SUMMARY_SCHEMA_VERSION
+    assert summary["project"]["name"] == "demo"
+    assert summary["project"]["version"] == "1.0"
+    component_names = {c["name"] for c in summary["components"]}
+    assert "libA" in component_names
+    # Suppressed (not_affected) finding is filtered by default - libB drops out
+    assert "libB" not in component_names
+    assert "libC" in component_names
+    libA = next(c for c in summary["components"] if c["name"] == "libA")
+    assert libA["vulnerabilities"][0]["id"] == "CVE-2024-0001"
+    assert libA["vulnerabilities"][0]["analysisState"] == "exploitable"
 
 
 def test_create_report_returns_value_error_on_missing_url():
