@@ -42,8 +42,15 @@
         integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
         crossorigin="anonymous">
     </script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css" rel="stylesheet" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/css/select2.min.css"
+        rel="stylesheet"
+        integrity="sha512-nMNlpuaDPrqlEls3IX/Q56H36qvBASwb3ipuo3MxeWbsQB1881ox0cRv7UPTgBlriqoynt35KjEwgGUeUXIPnw=="
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.13/js/select2.min.js"
+        integrity="sha512-2ImtlRlf2VVmiGZsjm9bEyhjGW4dU7B6TNwh/hx/iSByxNENtj3WVE6o/9Lj4TJeVXPi4bnOIMXFIJJAeufa0A=="
+        crossorigin="anonymous"
+        referrerpolicy="no-referrer"></script>
 {% endblock %}
 
 {% block content %}
@@ -80,48 +87,58 @@
         }
     </script>
     <script>
-        var req_get_all = 1;
         $(document).ready(function() {
             $("#project").select2({
-                placeholder: "Click to load projects from DT and wait",
-                allowClear: true
-            });
-            $(".selection").on("click", function(){
-                var project_field = $("#project");
-                sessionStorage.setItem("url", $("#url").val());
-                sessionStorage.setItem("token", $("#token").val());
-                if (project_field[0].length == 1 && req_get_all) {
-                    req_get_all = 0;
-                    $.ajax({
-                        type: "POST",
-                        url: "/projects/get_all",
-                        data: {
+                placeholder: "Type to search projects (URL and Token must be filled)",
+                allowClear: true,
+                minimumInputLength: 0,
+                ajax: {
+                    url: "/projects/get_all",
+                    type: "POST",
+                    delay: 300,
+                    cache: true,
+                    data: function (params) {
+                        sessionStorage.setItem("url", $("#url").val());
+                        sessionStorage.setItem("token", $("#token").val());
+                        return {
                             "url": $("#url").val(),
-                            "token": $("#token").val()
-                        },
-                        success: function(data) {
-                            projects = jQuery.parseJSON(data);
-                            $.each(projects, function (i, item) {
-                                project_field.append($('<option>', { 
-                                    value: item.value,
-                                    text : item.name + " " + item.version + " (" + item.uuid + ")"
-                                }));
-                            });
-                            $("#project").select2({
-                                placeholder: "Select project",
-                            });
-                        },
-                        error: function(data) {
-                            req_get_all = 1;
-                            location.reload();
-                        },
-                        complete: function(data) {
-                            $("#url").val(sessionStorage.getItem("url"));
-                            $("#token").val(sessionStorage.getItem("token"));
+                            "token": $("#token").val(),
+                            "searchText": params.term || "",
+                            "pageNumber": params.page || 1,
+                            "csrf_token": $('input[name="csrf_token"]').val()
+                        };
+                    },
+                    transport: function (params, success, failure) {
+                        if (!$("#url").val() || !$("#token").val()) {
+                            success({items: [], total: 0, pageSize: 0});
+                            return;
                         }
-                    });
+                        return $.ajax(params).then(function (data, _status, xhr) {
+                            success({
+                                items: data,
+                                total: parseInt(xhr.getResponseHeader("X-Total-Count")) || 0,
+                                pageSize: parseInt(xhr.getResponseHeader("X-Page-Size")) || data.length
+                            });
+                        }, failure);
+                    },
+                    processResults: function (response, params) {
+                        params.page = params.page || 1;
+                        var pageSize = response.pageSize || response.items.length || 1;
+                        var label = function (p) {
+                            return p.name + " " + (p.version || "") + " (" + p.uuid + ")";
+                        };
+                        return {
+                            results: response.items.map(function (p) {
+                                var l = label(p);
+                                return { id: l, text: l };
+                            }),
+                            pagination: {
+                                more: (params.page * pageSize) < response.total
+                            }
+                        };
+                    }
                 }
-            })
+            });
         });
     </script>
 {% endblock %}

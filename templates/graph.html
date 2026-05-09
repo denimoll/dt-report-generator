@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <link rel="stylesheet" href="resource://content-accessible/plaintext.css">
+    <style>
+        pre {
+            line-height: 1.4;
+        }
+        .pkg {
+            color: #333;
+        }
+        .vuln {
+            font-weight: bold;
+        }
+        .vuln-critical {
+            color: #b30000;
+        }
+        .vuln-high {
+            color: #d9534f;
+        }
+        .vuln-medium {
+            color: #f0ad4e;
+        }
+        .vuln-low {
+            color: #5bc0de;
+        }
+    </style>
+</head>
+<body>
+    <pre>{{ graph|safe }}</pre>
+</body>
+</html>
