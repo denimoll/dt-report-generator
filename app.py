@@ -24,6 +24,7 @@ from flask import (
 from flasgger import Swagger
 from flask_bootstrap import Bootstrap5
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.utils import secure_filename
 
 from backend.dependency_graph import get_graph
 from backend.param_validators import projects_page_size
@@ -163,7 +164,7 @@ def create_zip(output_dir, with_graph=False):
         return zip_path
     except OSError as e:
         logger.error(f"Error while creating ZIP: {e}")
-        flash(str(e), "danger")
+        flash("Failed to build report archive.", "danger")
         return None
 
 def _redact(form_data):
@@ -174,6 +175,23 @@ def _redact(form_data):
 def _new_output_dir():
     """ Create a unique output directory for a single report request """
     return tempfile.mkdtemp(prefix="dtrg-")
+
+def _safe_download_name(report):
+    """ Sanitize the report-name string before it lands in Content-Disposition.
+
+    `report` is built from the DT project name + version + date. The DT
+    project name is operator-controlled but flows from an external system,
+    so we run it through werkzeug's secure_filename to drop any path
+    separators or odd unicode before sending it as a header.
+    """
+    safe = secure_filename(f"{report}.zip")
+    return safe or "report.zip"
+
+# Generic message returned to clients when report generation fails. The
+# actual exception is logged; we do not surface its str() to keep
+# CodeQL py/stack-trace-exposure happy and to avoid accidental leaks
+# when validators evolve to embed contextual data.
+_GENERIC_REPORT_FAILURE = "Report generation failed. Check server logs for details."
 
 def _build_report(config, output_dir):
     """ Run create_report + graph + zip and return (zip_path, name_or_error) """
@@ -234,9 +252,10 @@ def get_report():
     zip_path, report = _build_report(data, output_dir)
     if zip_path:
         logger.info("Report generation successful. Sending ZIP file")
-        return send_file(zip_path, as_attachment=True, download_name=f"{report}.zip")
+        return send_file(zip_path, as_attachment=True,
+                         download_name=_safe_download_name(report))
     logger.error(f"Report generation failed: {report}")
-    flash(str(report), "danger")
+    flash(_GENERIC_REPORT_FAILURE, "danger")
     return redirect(url_for("index"))
 
 @app.route("/api/v1/reports/get_report", methods=["POST"])
@@ -311,9 +330,10 @@ def get_report_api():
     zip_path, report = _build_report(config, output_dir)
     if not zip_path:
         logger.error(f"API report generation failed: {report}")
-        return jsonify(error=str(report)), 400
+        return jsonify(error=_GENERIC_REPORT_FAILURE), 400
     return send_file(zip_path, as_attachment=True,
-                     download_name=f"{report}.zip", mimetype="application/zip")
+                     download_name=_safe_download_name(report),
+                     mimetype="application/zip")
 
 
 # PROJECTS GROUP
@@ -379,8 +399,8 @@ def get_all_projects():
         return response
     except (ValueError, ConnectionError, IndexError) as e:
         logger.error(f"Error fetching projects: {e}")
-        flash(f"An internal error has occurred. {str(e)}", "danger")
-        return jsonify(error_msg=f"An internal error has occurred. {str(e)}"), 400
+        flash("An internal error has occurred while fetching projects.", "danger")
+        return jsonify(error_msg="An internal error has occurred."), 400
 
 @app.route("/api/v1/projects", methods=["POST"])
 @csrf.exempt
