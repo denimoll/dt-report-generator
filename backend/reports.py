@@ -93,116 +93,134 @@ def get_severity(severities):
     return level, [key for key, val in severity.items() if val == level][0]
 
 
+def _resolve_params(config):
+    """ Pull url/token/project out of the request config, validate them """
+    raw_url = os.getenv("DTRG_URL") or (config.get("url") or [""])[0]
+    url = check_format_url(raw_url)
+    token = os.getenv("DTRG_TOKEN") or (config.get("token") or [""])[0]
+    headers = check_token(token, url)
+    project_raw = (config.get("project") or [""])[0]
+    # form flow sends "name version (uuid)"; API flow sends a bare UUID
+    project_match = re.search(r"\(([^()]+)\)\s*$", project_raw)
+    project_id = project_match.group(1) if project_match else project_raw.strip()
+    project = check_project(project_id)
+    return url, headers, project
+
+
+def _fetch_project_info(url, headers, project):
+    """ Read project metadata from DT and shape it for the report """
+    logger.info("Fetching project metadata")
+    res = requests.get(url+"project/"+project, headers=headers,
+                       verify=verify_tls(), timeout=http_timeout())
+    res.raise_for_status()
+    text = res.json()
+    project_name_str = text.get("name")
+    metrics = text.get("metrics") or {}
+    project_info = {
+        # Plain string here; the docx render step decorates it as a hyperlink
+        "name": project_name_str,
+        "version": text.get("version") or "no version",
+        "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
+                                                0)/1000).strftime("%d.%m.%Y %H:%M"),
+        "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "componentsCount": metrics.get("components"),
+        "vulnsCount": metrics.get("vulnerabilities"),
+        "vulnComponentsCount": metrics.get("vulnerableComponents"),
+    }
+    logger.debug(f"Project info retrieved: {project_info}")
+    if text.get("directDependencies"):
+        direct_uuids = [x.get("uuid")
+                        for x in json.loads(text.get("directDependencies"))]
+    else:
+        direct_uuids = []
+    return project_info, project_name_str, direct_uuids
+
+
+def _fetch_sbom(url, headers, project):
+    """ Pull the CycloneDX SBOM (vulnerabilities + dependency graph) """
+    logger.info("Fetching SBOM with vulnerabilities")
+    res = requests.get(url+"bom/cyclonedx/project/"+project
+                       +"?format=json&variant=withVulnerabilities&download=true",
+                       headers=headers, verify=verify_tls(), timeout=http_timeout())
+    res.raise_for_status()
+    text = res.json()
+    vulnerabilities = text.get("vulnerabilities") or []
+    deps_deps = {}
+    for deps in text.get("dependencies") or []:
+        deps_deps[deps.get("ref")] = deps.get("dependsOn")
+    return vulnerabilities, deps_deps
+
+
+def _fetch_findings(url, headers, project):
+    """ Pull VEX analysis from the findings API.
+
+    The CycloneDX variant=withVulnerabilities does not always carry the
+    analysis block (depends on DT version and how the VEX was imported);
+    findings is the source of truth for the audit state shown in the DT UI.
+    Returns a (vuln_id, component_uuid) -> analysis dict map.
+    """
+    logger.info("Fetching VEX analysis from findings API")
+    res = requests.get(url+"finding/project/"+project+"?suppressed=true",
+                       headers=headers, verify=verify_tls(), timeout=http_timeout())
+    res.raise_for_status()
+    analysis_by_pair = {}
+    for finding in res.json() or []:
+        vuln_id = (finding.get("vulnerability") or {}).get("vulnId")
+        component_uuid = (finding.get("component") or {}).get("uuid")
+        analysis = finding.get("analysis") or {}
+        if vuln_id and component_uuid:
+            analysis_by_pair[(vuln_id, component_uuid)] = {
+                "state": (analysis.get("state") or "").lower(),
+                "justification": analysis.get("justification") or "",
+                "is_suppressed": bool(analysis.get("isSuppressed")),
+            }
+    logger.info(f"Findings API returned analysis for "
+                f"{len(analysis_by_pair)} (vuln, component) pairs")
+    return analysis_by_pair
+
+
+def _fetch_components(url, headers, project, direct_uuids, deps_deps):
+    """ Pull every component of the project and shape it for the report """
+    res = requests.get(url+"component/project/"+project+
+        "?searchText=&pageSize=99999&pageNumber=1",
+        headers=headers, verify=verify_tls(), timeout=http_timeout())
+    res.raise_for_status()
+    components = {}
+    for component in res.json():
+        try:
+            last_version = component.get("repositoryMeta").get("latestVersion")
+        except AttributeError:
+            last_version = ""
+        components[component.get("uuid")] = {
+            "name": component.get("name"),
+            "version": component.get("version"),
+            "group": component.get("group") or "",
+            "last_version": last_version,
+            "is_direct_dependency": component.get("uuid") in direct_uuids,
+            "dependencies": deps_deps[component.get("uuid")],
+            "vulnerabilities": [],
+            "severity": "",
+            "severity_level": 0,
+            "graph_level": None,
+        }
+    logger.info(f"{len(components)} components processed")
+    return components
+
+
 def create_report(config, output_dir):
     """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
-    # variables
-    doc = DocxTemplate("reports/draft.docx") # docx template
-    excel = load_workbook("reports/draft.xlsx") # excel document
-    project_info = {} # common info about project
-    components = {} # dict of components
+    doc = DocxTemplate("reports/draft.docx")
+    excel = load_workbook("reports/draft.xlsx")
 
     try:
-        # read config and validate parameters
-        raw_url = os.getenv("DTRG_URL") or (config.get("url") or [""])[0]
-        url = check_format_url(raw_url)
-        token = os.getenv("DTRG_TOKEN") or (config.get("token") or [""])[0]
-        headers = check_token(token, url)
-        project_raw = (config.get("project") or [""])[0]
-        # form flow sends "name version (uuid)"; API flow sends a bare UUID
-        project_match = re.search(r"\(([^()]+)\)\s*$", project_raw)
-        project_id = project_match.group(1) if project_match else project_raw.strip()
-        project = check_project(project_id)
-
-       # get common info about project
-        logger.info("Fetching project metadata")
-        res = requests.get(url+"project/"+project, headers=headers,
-                           verify=verify_tls(), timeout=http_timeout())
-        res.raise_for_status()
-        text = res.json()
-        project_name = RichText()
-        project_name_str = text.get("name")
-        project_name.add(project_name_str,
-            url_id=doc.build_url_id(url.split("api/v1/")[0]+"projects/"+project))
-        metrics = text.get("metrics") or {}
-        project_info.update({
-            "name": project_name,
-            "version": text.get("version") or "no version",
-            "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
-                                                    0)/1000).strftime("%d.%m.%Y %H:%M"),
-            "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
-            "componentsCount": metrics.get("components"),
-            "vulnsCount": metrics.get("vulnerabilities"),
-            "vulnComponentsCount": metrics.get("vulnerableComponents")
-        })
-        logger.debug(f"Project info retrieved: {project_info}")
-        if text.get("directDependencies"):
-            direct_dependencies = list(x.get("uuid")
-                                    for x in json.loads(text.get("directDependencies")))
-        else:
-            direct_dependencies = []
-
-        # get sbom with info about vulnerabilities and dependencies of dependencies
-        logger.info("Fetching SBOM with vulnerabilities")
-        res = requests.get(url+"bom/cyclonedx/project/"+project
-                           +"?format=json&variant=withVulnerabilities&download=true",
-                           headers=headers, verify=verify_tls(), timeout=http_timeout())
-        res.raise_for_status()
-        text = res.json()
-        vulnerabilities = text.get("vulnerabilities") or []
-        deps_deps = {}
-        for deps in text.get("dependencies") or []:
-            deps_deps.update({
-                deps.get("ref"):deps.get("dependsOn")
-            })
-
-        # The CycloneDX variant=withVulnerabilities does not always carry
-        # the analysis block (depends on DT version and how the VEX was
-        # imported). Pull the findings list separately - it is the source
-        # of truth for the audit state shown in the DT UI.
-        logger.info("Fetching VEX analysis from findings API")
-        res = requests.get(url+"finding/project/"+project+"?suppressed=true",
-                           headers=headers, verify=verify_tls(), timeout=http_timeout())
-        res.raise_for_status()
-        analysis_by_pair = {}
-        for finding in res.json() or []:
-            vuln_id = (finding.get("vulnerability") or {}).get("vulnId")
-            component_uuid = (finding.get("component") or {}).get("uuid")
-            analysis = finding.get("analysis") or {}
-            if vuln_id and component_uuid:
-                analysis_by_pair[(vuln_id, component_uuid)] = {
-                    "state": (analysis.get("state") or "").lower(),
-                    "justification": analysis.get("justification") or "",
-                    "is_suppressed": bool(analysis.get("isSuppressed")),
-                }
-        logger.info(f"Findings API returned analysis for "
-                    f"{len(analysis_by_pair)} (vuln, component) pairs")
-
-        # get components
-        res = requests.get(url+"component/project/"+project+
-            "?searchText=&pageSize=99999&pageNumber=1",
-            headers=headers, verify=verify_tls(), timeout=http_timeout())
-        res.raise_for_status()
-        for component in res.json():
-            try:
-                last_version = component.get("repositoryMeta").get("latestVersion")
-            except AttributeError:
-                last_version = ""
-            components.update({
-                component.get("uuid"): {
-                    "name": component.get("name"),
-                    "version": component.get("version"),
-                    "group": component.get("group") or "",
-                    "last_version": last_version,
-                    "is_direct_dependency": component.get("uuid") in direct_dependencies,
-                    "dependencies": deps_deps[component.get("uuid")],
-                    "vulnerabilities": [],
-                    "severity": "",
-                    "severity_level": 0,
-                    "graph_level": None,
-                }
-            })
-        logger.info(f"{len(components)} components processed")
+        url, headers, project = _resolve_params(config)
+        project_info, project_name_str, direct_uuids = _fetch_project_info(
+            url, headers, project)
+        vulnerabilities, deps_deps = _fetch_sbom(url, headers, project)
+        analysis_by_pair = _fetch_findings(url, headers, project)
+        components = _fetch_components(url, headers, project,
+                                       direct_uuids, deps_deps)
 
         # add info about vulnerabilities to components
         logger.info("Processing component vulnerabilities")
@@ -313,8 +331,14 @@ def create_report(config, output_dir):
 
         # render and save result in word report
         logger.info("Generating Word report")
+        project_url = url.split("api/v1/")[0] + "projects/" + project
+        # decorate the project name with a hyperlink for the docx output
+        project_for_docx = dict(project_info)
+        project_link = RichText()
+        project_link.add(project_name_str, url_id=doc.build_url_id(project_url))
+        project_for_docx["name"] = project_link
         doc.render({
-            "project": project_info,
+            "project": project_for_docx,
             "components": vuln_components
         })
         doc.save(os.path.join(output_dir, "result.docx"))
@@ -368,7 +392,6 @@ def create_report(config, output_dir):
         logger.info("Excel report saved")
 
         # write the JSON summary for downstream tooling
-        project_url = url.split("api/v1/")[0] + "projects/" + project
         summary = _build_summary(project_name_str, project_url,
                                  project_info, vuln_components)
         with open(os.path.join(output_dir, "summary.json"), "w",
@@ -377,7 +400,7 @@ def create_report(config, output_dir):
         logger.info("JSON summary saved")
 
         # return
-        report_name = project_name_str or project_id
+        report_name = project_name_str or project
         return (f"{report_name} {project_info.get('version')} "
                 f"({datetime.now().strftime('%d.%m.%Y')})", components)
     except (ValueError, ConnectionError) as e:
