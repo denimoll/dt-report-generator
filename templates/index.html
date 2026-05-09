@@ -88,57 +88,80 @@
     </script>
     <script>
         $(document).ready(function() {
+            // Shared select2 ajax config used by both project selects
+            var ajaxConfig = {
+                url: "/projects/get_all",
+                type: "POST",
+                delay: 300,
+                cache: true,
+                data: function (params) {
+                    sessionStorage.setItem("url", $("#url").val());
+                    sessionStorage.setItem("token", $("#token").val());
+                    return {
+                        "url": $("#url").val(),
+                        "token": $("#token").val(),
+                        "searchText": params.term || "",
+                        "pageNumber": params.page || 1,
+                        "csrf_token": $('input[name="csrf_token"]').val()
+                    };
+                },
+                transport: function (params, success, failure) {
+                    if (!$("#url").val() || !$("#token").val()) {
+                        success({items: [], total: 0, pageSize: 0});
+                        return;
+                    }
+                    return $.ajax(params).then(function (data, _status, xhr) {
+                        success({
+                            items: data,
+                            total: parseInt(xhr.getResponseHeader("X-Total-Count")) || 0,
+                            pageSize: parseInt(xhr.getResponseHeader("X-Page-Size")) || data.length
+                        });
+                    }, failure);
+                },
+                processResults: function (response, params) {
+                    params.page = params.page || 1;
+                    var pageSize = response.pageSize || response.items.length || 1;
+                    var label = function (p) {
+                        return p.name + " " + (p.version || "") + " (" + p.uuid + ")";
+                    };
+                    return {
+                        results: response.items.map(function (p) {
+                            var l = label(p);
+                            return { id: l, text: l };
+                        }),
+                        pagination: {
+                            more: (params.page * pageSize) < response.total
+                        }
+                    };
+                }
+            };
             $("#project").select2({
                 placeholder: "Type to search projects (URL and Token must be filled)",
                 allowClear: true,
                 minimumInputLength: 0,
-                ajax: {
-                    url: "/projects/get_all",
-                    type: "POST",
-                    delay: 300,
-                    cache: true,
-                    data: function (params) {
-                        sessionStorage.setItem("url", $("#url").val());
-                        sessionStorage.setItem("token", $("#token").val());
-                        return {
-                            "url": $("#url").val(),
-                            "token": $("#token").val(),
-                            "searchText": params.term || "",
-                            "pageNumber": params.page || 1,
-                            "csrf_token": $('input[name="csrf_token"]').val()
-                        };
-                    },
-                    transport: function (params, success, failure) {
-                        if (!$("#url").val() || !$("#token").val()) {
-                            success({items: [], total: 0, pageSize: 0});
-                            return;
-                        }
-                        return $.ajax(params).then(function (data, _status, xhr) {
-                            success({
-                                items: data,
-                                total: parseInt(xhr.getResponseHeader("X-Total-Count")) || 0,
-                                pageSize: parseInt(xhr.getResponseHeader("X-Page-Size")) || data.length
-                            });
-                        }, failure);
-                    },
-                    processResults: function (response, params) {
-                        params.page = params.page || 1;
-                        var pageSize = response.pageSize || response.items.length || 1;
-                        var label = function (p) {
-                            return p.name + " " + (p.version || "") + " (" + p.uuid + ")";
-                        };
-                        return {
-                            results: response.items.map(function (p) {
-                                var l = label(p);
-                                return { id: l, text: l };
-                            }),
-                            pagination: {
-                                more: (params.page * pageSize) < response.total
-                            }
-                        };
-                    }
-                }
+                ajax: ajaxConfig
             });
+            $("#project_b").select2({
+                placeholder: "Type to search the comparison project",
+                allowClear: true,
+                minimumInputLength: 0,
+                ajax: ajaxConfig
+            });
+
+            // Compare-mode toggle: hide project_b unless the checkbox is on,
+            // and switch the form action between single-report and diff routes.
+            var $form = $("form").first();
+            var actionSingle = "{{ url_for('get_report') }}";
+            var actionDiff = "{{ url_for('get_diff_report') }}";
+            var $projectBGroup = $("#project_b").closest(".mb-3, .form-group");
+            function syncCompareUI() {
+                var on = $("#compare").is(":checked");
+                $projectBGroup.toggle(on);
+                $form.attr("action", on ? actionDiff : actionSingle);
+                $("#submit").val(on ? "Get diff report" : "Get report");
+            }
+            syncCompareUI();
+            $("#compare").on("change", syncCompareUI);
         });
     </script>
 {% endblock %}
