@@ -119,3 +119,21 @@ Planned functionality:
 - [x] *Optimization*. Project dropdown is lazy-loaded via select2 ajax with debounced search. Page size controlled by `DTRG_PROJECTS_PAGE_SIZE`.
 - [x] *Graph*. Configurable traversal depth via `DTRG_GRAPH_DEPTH`; per-component level surfaced in the report.
 - [x] *Specification*. OpenAPI 2.0 spec served at `/apispec.json`; Swagger UI at `/apidocs/`.
+
+### CVE-PaaS collaboration
+- [ ] *Graceful degradation*. When CVE-PaaS is down or slow, finish the report without enrichment instead of failing the whole run.
+- [ ] *Batch endpoint*. Replace the per-CVE round-trip with a `POST /get_info_batch` call (requires CVE-PaaS-side change). Cuts report time from minutes to seconds on large projects.
+- [ ] *Cache*. Local SQLite cache for CVE-PaaS responses with configurable TTL, so repeat reports avoid the network hop.
+- [ ] *Wider enrichment*. Surface EPSS / KEV / vendor advisories from CVE-PaaS as report columns, not just `Priority`.
+- [ ] *CVE-PaaS auth*. Support an API-key header for the CVE-PaaS request when CVE-PaaS adopts authenticated access.
+
+### Future features
+- [ ] *Diff between project versions*. Show what vulnerabilities appeared, disappeared and changed between two versions of the same DT project.
+- [ ] *Multi-project reports*. One ZIP covering N projects at once for portfolio reviews.
+- [ ] *Severity overrides*. Per-component / per-CVE override rules (config file) so known false positives stay quiet.
+- [ ] *Rate limiting* on `/api/v1/*` to soften the impact of a runaway CI loop.
+
+### Pre-release polish carried over
+- [ ] *form.py env evaluation per request*. Read `DTRG_URL` / `DTRG_TOKEN` inside `__init__`, not at class definition time, so flipping the env at runtime takes effect without restart.
+- [ ] *CI matrix*. Run `pytest` against Python 3.11 and 3.13 in addition to 3.12.
+- [ ] *Multi-arch Docker*. Publish `linux/arm64` alongside `linux/amd64` for Apple Silicon and Raspberry Pi.
