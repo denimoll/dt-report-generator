@@ -1,6 +1,14 @@
-""" Tests for backend.reports.compute_diff """
+""" Tests for backend.reports.compute_diff and create_diff_report """
 
-from backend.reports import compute_diff
+import json
+import os
+import tempfile
+from unittest.mock import patch
+
+from backend import reports
+from backend.reports import compute_diff, create_diff_report
+
+from tests.test_reports import _fake_dt_get
 
 
 def _component(name, version, vulns, group=""):
@@ -108,3 +116,73 @@ def test_compute_diff_carries_analysis_state_per_side():
     assert c["analysisStateB"] == "false_positive"
     assert c["isSuppressedA"] is False
     assert c["isSuppressedB"] is True
+
+
+# create_diff_report integration
+
+def _payloads_for(version, vuln_ids):
+    """ Mock fixture: a project at <version> with the given vulns on libA """
+    return [
+        (lambda u: u.endswith("/project"), []),
+        ("finding/project", []),
+        ("bom/cyclonedx", {
+            "vulnerabilities": [
+                {"bom-ref": v, "id": v, "ratings": [{"severity": "high"}],
+                 "affects": [{"ref": "c1"}]}
+                for v in vuln_ids
+            ],
+            "dependencies": [{"ref": "c1", "dependsOn": []}],
+        }),
+        ("component/project", [
+            {"uuid": "c1", "name": "libA", "version": version, "group": "",
+             "repositoryMeta": None},
+        ]),
+        ("/project/", {"name": "demo", "version": version, "metrics": {},
+                       "directDependencies": "[]"}),
+    ]
+
+
+def _config(project_uuid):
+    return {
+        "url": ["https://example.com"],
+        "token": ["t"],
+        "project": [project_uuid],
+    }
+
+
+def test_create_diff_report_writes_xlsx_and_summary(monkeypatch):
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    # First call (project A) gets one payload set; second call (project B) the other.
+    fixture_a = _fake_dt_get(_payloads_for("1.0", ["CVE-2024-0001",
+                                                   "CVE-2024-0002"]))
+    fixture_b = _fake_dt_get(_payloads_for("1.1", ["CVE-2024-0001"]))
+    call_state = {"is_b": False, "switch_after": 4}  # 4 calls for project A
+    counter = {"n": 0}
+
+    def dispatch(url, headers=None, verify=None, timeout=None):
+        counter["n"] += 1
+        if counter["n"] <= call_state["switch_after"]:
+            return fixture_a(url, headers=headers, verify=verify, timeout=timeout)
+        return fixture_b(url, headers=headers, verify=verify, timeout=timeout)
+
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get", side_effect=dispatch):
+        report, components = create_diff_report(
+            _config("00000000-0000-0000-0000-000000000001"),
+            _config("00000000-0000-0000-0000-000000000002"),
+            td)
+        assert isinstance(report, str)
+        assert components is None
+        assert os.path.exists(os.path.join(td, "result.xlsx"))
+        with open(os.path.join(td, "summary.json"), encoding="utf-8") as f:
+            summary = json.load(f)
+
+    assert summary["kind"] == "diff"
+    assert summary["projectA"]["version"] == "1.0"
+    assert summary["projectB"]["version"] == "1.1"
+    added_ids = sorted(e["vulnerability"] for e in summary["diff"]["added"])
+    removed_ids = sorted(e["vulnerability"] for e in summary["diff"]["removed"])
+    common_ids = sorted(e["vulnerability"] for e in summary["diff"]["common"])
+    assert added_ids == []  # B has no new CVEs vs A
+    assert removed_ids == ["CVE-2024-0002"]  # this one was fixed
+    assert common_ids == ["CVE-2024-0001"]  # this one stayed

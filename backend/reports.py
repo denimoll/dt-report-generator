@@ -8,8 +8,8 @@ from datetime import datetime
 
 import requests
 from docxtpl import DocxTemplate, RichText
-from openpyxl import load_workbook
-from openpyxl.styles import Alignment
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Font
 
 from backend.dependency_graph import compute_graph_levels
 from backend.param_validators import (
@@ -539,3 +539,164 @@ def create_report(config, output_dir):
     except (ValueError, ConnectionError) as e:
         logger.error(f"Error while generating report: {e}")
         return e, []
+
+
+def _project_summary(data):
+    """ Trim a _load_project dict down to the JSON-serializable bits """
+    info = data["info"]
+    return {
+        "name": data["name"],
+        "version": info.get("version"),
+        "url": data["url"],
+        "lastBomImport": info.get("lastBomImport"),
+        "componentsCount": info.get("componentsCount"),
+        "vulnerableComponentsCount": info.get("vulnComponentsCount"),
+        "vulnerabilitiesCount": info.get("vulnsCount"),
+        "suppressedCount": info.get("suppressedCount", 0),
+    }
+
+
+def _render_diff_xlsx(diff, data_a, data_b, output_dir):
+    """ Build the diff Excel from scratch (no template).
+
+    Sheets: General information (both project metadatas + counts),
+    Added (vulns new in B), Removed (vulns gone from A), Common
+    (vulns in both, possibly with version changes).
+    """
+    logger.info("Generating diff Excel report")
+    wb = Workbook()
+    bold = Font(bold=True)
+
+    ws = wb.active
+    ws.title = "General information"
+    ws["A1"] = ""
+    ws["B1"] = "Project A"
+    ws["B1"].font = bold
+    ws["C1"] = "Project B"
+    ws["C1"].font = bold
+    rows = [
+        ("Name", data_a["name"], data_b["name"]),
+        ("Version", data_a["info"].get("version"), data_b["info"].get("version")),
+        ("Last BOM import",
+         data_a["info"].get("lastBomImport"), data_b["info"].get("lastBomImport")),
+        ("URL", data_a["url"], data_b["url"]),
+        ("Components", data_a["info"].get("componentsCount"),
+         data_b["info"].get("componentsCount")),
+        ("Vulnerable components", data_a["info"].get("vulnComponentsCount"),
+         data_b["info"].get("vulnComponentsCount")),
+        ("Vulnerabilities", data_a["info"].get("vulnsCount"),
+         data_b["info"].get("vulnsCount")),
+    ]
+    for i, (label, a, b) in enumerate(rows, start=2):
+        ws.cell(row=i, column=1, value=label).font = bold
+        ws.cell(row=i, column=2, value=a)
+        ws.cell(row=i, column=3, value=b)
+    summary_row = len(rows) + 3
+    ws.cell(row=summary_row, column=1, value="Diff").font = bold
+    ws.cell(row=summary_row+1, column=1, value="Added")
+    ws.cell(row=summary_row+1, column=2, value=len(diff["added"]))
+    ws.cell(row=summary_row+2, column=1, value="Removed")
+    ws.cell(row=summary_row+2, column=2, value=len(diff["removed"]))
+    ws.cell(row=summary_row+3, column=1, value="Common")
+    ws.cell(row=summary_row+3, column=2, value=len(diff["common"]))
+    ws.cell(row=summary_row+4, column=1, value="Generated at")
+    ws.cell(row=summary_row+4, column=2, value=datetime.now().strftime("%d.%m.%Y %H:%M"))
+
+    def _fill_simple(sheet_name, entries):
+        sheet = wb.create_sheet(sheet_name)
+        headers = ["#", "Component", "Group", "Component version",
+                   "Vulnerability", "Severity", "Priority", "Analysis state",
+                   "Link"]
+        for col, header in enumerate(headers, start=1):
+            cell = sheet.cell(row=1, column=col, value=header)
+            cell.font = bold
+        for i, entry in enumerate(entries, start=2):
+            sheet.cell(row=i, column=1, value=i-1)
+            sheet.cell(row=i, column=2, value=entry["component"])
+            sheet.cell(row=i, column=3, value=entry["group"])
+            sheet.cell(row=i, column=4, value=str(entry["componentVersion"]))
+            cell = sheet.cell(row=i, column=5, value=entry["vulnerability"])
+            link = entry.get("link") or ""
+            if link.startswith("http"):
+                cell.hyperlink = link
+            sheet.cell(row=i, column=6, value=entry["severity"])
+            sheet.cell(row=i, column=7,
+                       value=(entry.get("priority") or "").lower())
+            sheet.cell(row=i, column=8, value=entry["analysisState"])
+            sheet.cell(row=i, column=9, value=link)
+
+    _fill_simple("Added", diff["added"])
+    _fill_simple("Removed", diff["removed"])
+
+    sheet = wb.create_sheet("Common")
+    headers = ["#", "Component", "Group", "Version A", "Version B",
+               "Vulnerability", "Severity", "Priority",
+               "Analysis state A", "Analysis state B", "Link"]
+    for col, header in enumerate(headers, start=1):
+        sheet.cell(row=1, column=col, value=header).font = bold
+    for i, entry in enumerate(diff["common"], start=2):
+        sheet.cell(row=i, column=1, value=i-1)
+        sheet.cell(row=i, column=2, value=entry["component"])
+        sheet.cell(row=i, column=3, value=entry["group"])
+        sheet.cell(row=i, column=4, value=str(entry["componentVersionA"]))
+        sheet.cell(row=i, column=5, value=str(entry["componentVersionB"]))
+        cell = sheet.cell(row=i, column=6, value=entry["vulnerability"])
+        link = entry.get("link") or ""
+        if link.startswith("http"):
+            cell.hyperlink = link
+        sheet.cell(row=i, column=7, value=entry["severity"])
+        sheet.cell(row=i, column=8, value=(entry.get("priority") or "").lower())
+        sheet.cell(row=i, column=9, value=entry["analysisStateA"])
+        sheet.cell(row=i, column=10, value=entry["analysisStateB"])
+        sheet.cell(row=i, column=11, value=link)
+
+    wb.save(os.path.join(output_dir, "result.xlsx"))
+    logger.info("Diff Excel report saved")
+
+
+def _render_diff_summary(diff, data_a, data_b, output_dir):
+    """ Write the JSON summary for a diff report """
+    summary = {
+        "schemaVersion": SUMMARY_SCHEMA_VERSION,
+        "kind": "diff",
+        "generatedAt": datetime.now().strftime("%d.%m.%Y %H:%M"),
+        "projectA": _project_summary(data_a),
+        "projectB": _project_summary(data_b),
+        "diff": diff,
+    }
+    with open(os.path.join(output_dir, "summary.json"), "w",
+              encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
+    logger.info("Diff JSON summary saved")
+
+
+def create_diff_report(config_a, config_b, output_dir):
+    """ Generate a diff report between two DT projects.
+
+    config_a / config_b have the same shape as create_report's config
+    (url / token / project), so the route layer can just split a single
+    request into two configs (same URL, same token, two project IDs).
+    Returns (report_name, None) on success, (exception, None) on failure -
+    None matches create_report's "no graph for this report" signal.
+    """
+    logger.info("Diff report generation started")
+    try:
+        url_a, headers_a, project_a = _resolve_params(config_a)
+        url_b, headers_b, project_b = _resolve_params(config_b)
+        data_a = _load_project(url_a, headers_a, project_a)
+        data_b = _load_project(url_b, headers_b, project_b)
+        diff = compute_diff(data_a, data_b)
+        logger.info(f"Diff computed: +{len(diff['added'])} added, "
+                    f"-{len(diff['removed'])} removed, "
+                    f"={len(diff['common'])} common")
+        _render_diff_xlsx(diff, data_a, data_b, output_dir)
+        _render_diff_summary(diff, data_a, data_b, output_dir)
+        name_a = data_a["name"] or project_a
+        name_b = data_b["name"] or project_b
+        ver_a = data_a["info"].get("version") or ""
+        ver_b = data_b["info"].get("version") or ""
+        return (f"diff {name_a} {ver_a} vs {name_b} {ver_b} "
+                f"({datetime.now().strftime('%d.%m.%Y')})", None)
+    except (ValueError, ConnectionError) as e:
+        logger.error(f"Error while generating diff report: {e}")
+        return e, None
