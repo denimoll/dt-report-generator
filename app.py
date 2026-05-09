@@ -156,8 +156,10 @@ def create_zip(output_dir, with_graph=False):
     zip_path = os.path.join(output_dir, "reports.zip")
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for file in ["result.docx", "result.xlsx"]:
-                zipf.write(os.path.join(output_dir, file), arcname=file)
+            for file in ["result.docx", "result.xlsx", "summary.json"]:
+                src = os.path.join(output_dir, file)
+                if os.path.exists(src):
+                    zipf.write(src, arcname=file)
             if with_graph:
                 zipf.write(os.path.join(output_dir, "graph.html"), arcname="graph.html")
         logger.info("ZIP archive created successfully")
@@ -296,7 +298,7 @@ def get_report_api():
               example: 00000000-0000-0000-0000-000000000000
     responses:
       200:
-        description: ZIP archive with result.docx, result.xlsx and graph.html.
+        description: ZIP archive with result.docx, result.xlsx, summary.json and graph.html.
       400:
         description: Validation error (missing field or upstream rejected).
         schema:

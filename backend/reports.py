@@ -24,6 +24,60 @@ logger = logging.getLogger(__name__)
 
 
 
+SUMMARY_SCHEMA_VERSION = 1
+
+
+def _build_summary(project_name_str, project_url, project_info, vuln_components):
+    """ Machine-readable companion to the docx/xlsx report.
+
+    Produced as summary.json inside the ZIP so CI pipelines can post-process
+    the report (severity gates, dashboards, ...) without parsing Office files.
+    Kept intentionally flat - one component per entry, vulnerabilities nested
+    inline - and only exposes JSON-serializable fields.
+    """
+    return {
+        "schemaVersion": SUMMARY_SCHEMA_VERSION,
+        "project": {
+            "name": project_name_str,
+            "version": project_info.get("version"),
+            "url": project_url,
+            "lastBomImport": project_info.get("lastBomImport"),
+            "generatedAt": project_info.get("date"),
+            "componentsCount": project_info.get("componentsCount"),
+            "vulnerableComponentsCount": project_info.get("vulnComponentsCount"),
+            "vulnerabilitiesCount": project_info.get("vulnsCount"),
+            "suppressedCount": project_info.get("suppressedCount", 0),
+        },
+        "components": [
+            {
+                "name": c.get("name"),
+                "version": c.get("version"),
+                "group": c.get("group"),
+                "lastVersion": c.get("last_version"),
+                "isDirectDependency": c.get("is_direct_dependency"),
+                "graphLevel": c.get("graph_level"),
+                "severity": c.get("severity"),
+                "vulnerabilities": [
+                    {
+                        "id": v.get("id"),
+                        "link": v.get("link"),
+                        "severity": v.get("severity"),
+                        "priority": v.get("priority"),
+                        "addInfo": v.get("add_info"),
+                        "analysisState": v.get("analysis_state"),
+                        "analysisJustification": v.get("analysis_justification"),
+                        "analysisResponse": v.get("analysis_response"),
+                        "analysisDetail": v.get("analysis_detail"),
+                        "isSuppressed": v.get("is_suppressed"),
+                    }
+                    for v in c.get("vulnerabilities") or []
+                ],
+            }
+            for c in vuln_components
+        ],
+    }
+
+
 def get_severity(severities):
     """ Get level and name of severity by list severities """
     severity = {
@@ -312,6 +366,15 @@ def create_report(config, output_dir):
             del excel["All issues"]
         excel.save(os.path.join(output_dir, "result.xlsx"))
         logger.info("Excel report saved")
+
+        # write the JSON summary for downstream tooling
+        project_url = url.split("api/v1/")[0] + "projects/" + project
+        summary = _build_summary(project_name_str, project_url,
+                                 project_info, vuln_components)
+        with open(os.path.join(output_dir, "summary.json"), "w",
+                  encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        logger.info("JSON summary saved")
 
         # return
         report_name = project_name_str or project_id
