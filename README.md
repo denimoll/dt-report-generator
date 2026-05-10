@@ -72,10 +72,11 @@ export DTRG_URL="http://evil.com"
 export DTRG_TOKEN="some_special_token"
 ```
 №2. Vulnerability prioritization or enrichment
-You must beside deploy [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) tool. For every CVE dtrg send request for enrich vulnerability and get priority for fix. \
-Important to know: this may slow down the final report preparation. Especially for large projects. But with repeated requests for the same vulnerability it will be faster.
+You must beside deploy [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) tool. dtrg batches all CVE ids of a project into a single `POST /v1/cve` call (chunks of 50 transparently), so even projects with hundreds of CVEs add only a few CVE-PaaS round-trips. The enrichment surfaces CVSS, EPSS, KEV / PoC / Nuclei flags - directly in the `Additional info` column of the Excel report and as fields in `summary.json`. If CVE-PaaS is unreachable or returns an error, dtrg logs a warning and continues to render the report **without** enrichment instead of failing the run.
 ```
 export CVEPAAS_URL="http://evil.com"
+# optional: when CVE-PaaS is started with CVE_PAAS_API_KEY set
+export DTRG_CVEPAAS_KEY="cvepaas-secret"
 ```
 №3. Custom port
 ```
@@ -102,6 +103,8 @@ All environment variables:
 * DTRG_HTTP_TIMEOUT - timeout in seconds for outbound HTTP calls to DT and CVE-PaaS (default: 120)
 * DTRG_SECRET_KEY - Flask secret key used to sign session cookies and CSRF tokens for the form endpoints (`/`, `/reports/get_report`, `/projects/get_all`). Set a stable value when running multiple workers or behind a reverse proxy so tokens stay valid across restarts. If unset, a random key is generated on each start.
 * DTRG_API_KEY - shared secret required on the /api/v1/* endpoints. When unset (default) those endpoints are open and only network controls protect them; when set, callers must present the same value in an `X-DTRG-Key` or `Authorization: Bearer ...` header.
+* DTRG_API_RATE_LIMIT - per-IP rate limit applied to /api/v1/* (default `60/minute`). Empty disables enforcement. Format follows [Flask-Limiter notation](https://flask-limiter.readthedocs.io/en/stable/configuration.html#rate-limit-string-notation): e.g. `30/minute`, `1000/hour`, `5/second`.
+* DTRG_CVEPAAS_KEY - optional CVE-PaaS API key. When set, dtrg adds an `X-API-Key` header to every CVE-PaaS request. Match the value of `CVE_PAAS_API_KEY` configured on the CVE-PaaS side.
 * DTRG_INCLUDE_SUPPRESSED - when `true`, vulnerabilities that DT considers suppressed via VEX (state `resolved` / `resolved_with_pedigree` / `false_positive` / `not_affected`) are still rendered in the report with their analysis state in the `All issues` sheet. Default `false`, which matches the DT UI.
 * DTRG_GRAPH_DEPTH - max depth of the dependency graph traversal. Direct dependencies are level 1, their children level 2, etc. The level of each component is shown in column G of the `Vulnerable dependencies` sheet; components beyond the depth limit show an empty cell. Default 3.
 * DTRG_PROJECTS_PAGE_SIZE - page size for the form's project dropdown. Projects are loaded lazily as the user scrolls or types into the search box, so this controls how many DT projects are fetched per round-trip. Default 50. Does not affect `/api/v1/projects` (which still returns the full list by default).
@@ -136,12 +139,12 @@ Planned functionality:
 
 ### CVE-PaaS collaboration
 Caching is intentionally out of scope here — CVE-PaaS owns it on its side.
-- [ ] *Graceful degradation*. When CVE-PaaS is down or slow, finish the report without enrichment instead of failing the whole run.
-- [ ] *Batch endpoint*. Replace the per-CVE round-trip with a `POST /get_info_batch` call (requires CVE-PaaS-side change). Cuts report time from minutes to seconds on large projects.
-- [ ] *Wider enrichment*. Surface EPSS / KEV / vendor advisories from CVE-PaaS as report columns, not just `Priority`.
-- [ ] *CVE-PaaS auth*. Support an API-key header for the CVE-PaaS request when CVE-PaaS adopts authenticated access.
+- [x] *Graceful degradation*. CVE-PaaS errors / timeouts no longer abort the report; dtrg logs a warning and continues without enrichment for that batch.
+- [x] *Batch endpoint*. dtrg now calls `POST /v1/cve` once per project (in chunks of 50 ids) instead of per-vulnerability GETs.
+- [x] *Wider enrichment*. CVSS, EPSS and the KEV / PoC / Nuclei flags from CVE-PaaS land in the `Additional info` column and in `summary.json`.
+- [x] *CVE-PaaS auth*. `DTRG_CVEPAAS_KEY` env attaches `X-API-Key` to every CVE-PaaS call.
 
 ### On demand
 Pulled out of the active list — pick up only when there is a concrete trigger.
-- [ ] *Rate limiting* on `/api/v1/*`. Trigger: a runaway CI loop, or a public aaS deploy.
+- [x] *Rate limiting* on `/api/v1/*`. Per-IP cap via Flask-Limiter, controlled by `DTRG_API_RATE_LIMIT` (default `60/minute`).
 - [ ] *SSRF allowlist* for the user-supplied DT URL. Trigger: public aaS deploy.
