@@ -69,6 +69,11 @@ def _build_summary(project_name_str, project_url, project_info, vuln_components)
                         "analysisResponse": v.get("analysis_response"),
                         "analysisDetail": v.get("analysis_detail"),
                         "isSuppressed": v.get("is_suppressed"),
+                        "cvss": v.get("cvss"),
+                        "epss": v.get("epss"),
+                        "isKev": bool(v.get("is_kev", False)),
+                        "isPoc": bool(v.get("is_poc", False)),
+                        "isNucleiTemplate": bool(v.get("is_nuclei_template", False)),
                     }
                     for v in c.get("vulnerabilities") or []
                 ],
@@ -319,13 +324,30 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair,
             severity_level, severity = get_severity(list(x.get("severity")
                                                          for x in vuln.get("ratings")))
             cve_paas = cve_paas_data.get(cve_id, {}) if cve_id else {}
+            details = cve_paas.get("Details") or {}
+            links = details.get("Links") or {}
+            is_kev = bool(details.get("is_exploited"))
+            is_poc = bool(details.get("is_poc"))
+            is_template = bool(details.get("is_template"))
+            # Surface KEV / POC / Nuclei links in add_info regardless of
+            # priority - the boolean flags from CVE-PaaS already gate the
+            # presence of useful URLs, no need to also gate on Priority.
             add_info = []
-            if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
-                links = cve_paas["Details"]["Links"]
-                for link in links.get("POC"):
-                    add_info.append(link.get("url"))
-                if links.get("Nuclei templates"):
-                    add_info.append(links["Nuclei templates"].get("template_url"))
+            if is_kev:
+                kev_link = links.get("CISA KEV") or {}
+                kev_url = kev_link.get("url")
+                if kev_url:
+                    add_info.append(f"KEV: {kev_url}")
+            if is_poc:
+                for poc in links.get("POC") or []:
+                    poc_url = (poc or {}).get("url")
+                    if poc_url:
+                        add_info.append(f"POC: {poc_url}")
+            if is_template:
+                nuclei = links.get("Nuclei templates") or {}
+                template_url = nuclei.get("template_url")
+                if template_url:
+                    add_info.append(f"Nuclei: {template_url}")
             components[component_ref]["vulnerabilities"].append({
                 "uuid": vuln.get("bom-ref"),
                 "id": vuln_id,
@@ -340,6 +362,11 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair,
                 "analysis_response": analysis_response,
                 "analysis_detail": analysis_detail,
                 "is_suppressed": is_suppressed,
+                "cvss": details.get("CVSS"),
+                "epss": details.get("EPSS"),
+                "is_kev": is_kev,
+                "is_poc": is_poc,
+                "is_nuclei_template": is_template,
             })
     logger.info("Vulnerabilities assigned to components")
 
@@ -510,6 +537,11 @@ def compute_diff(data_a, data_b):
             "priority": vuln.get("priority"),
             "analysisState": vuln.get("analysis_state") or "",
             "isSuppressed": bool(vuln.get("is_suppressed", False)),
+            "cvss": vuln.get("cvss"),
+            "epss": vuln.get("epss"),
+            "isKev": bool(vuln.get("is_kev", False)),
+            "isPoc": bool(vuln.get("is_poc", False)),
+            "isNucleiTemplate": bool(vuln.get("is_nuclei_template", False)),
         }
 
     idx_a = _index(data_a)
@@ -536,6 +568,12 @@ def compute_diff(data_a, data_b):
             "analysisStateB": vb.get("analysis_state") or "",
             "isSuppressedA": bool(va.get("is_suppressed", False)),
             "isSuppressedB": bool(vb.get("is_suppressed", False)),
+            "cvss": vb.get("cvss") or va.get("cvss"),
+            "epss": vb.get("epss") or va.get("epss"),
+            "isKev": bool(vb.get("is_kev", False) or va.get("is_kev", False)),
+            "isPoc": bool(vb.get("is_poc", False) or va.get("is_poc", False)),
+            "isNucleiTemplate": bool(vb.get("is_nuclei_template", False)
+                                     or va.get("is_nuclei_template", False)),
         })
     return {"added": added, "removed": removed, "common": common}
 

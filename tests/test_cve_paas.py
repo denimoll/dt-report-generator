@@ -140,3 +140,89 @@ def test_fetch_cve_paas_partial_failure_returns_what_succeeded(monkeypatch):
     with patch.object(reports.requests, "post", side_effect=responses):
         result = _fetch_cve_paas(cve_ids)
     assert result == {"CVE-2024-0050": {"Priority": "Medium"}}
+
+
+# Wider enrichment in _attach_vulnerabilities
+
+def _components_with_one_cve():
+    return {
+        "c1": {
+            "name": "libA",
+            "version": "1.0",
+            "vulnerabilities": [],
+        },
+    }
+
+
+def _vuln_payload(cve_id):
+    return [{
+        "id": cve_id,
+        "bom-ref": "v1",
+        "ratings": [{"severity": "high"}],
+        "affects": [{"ref": "c1"}],
+    }]
+
+
+def test_attach_vulnerabilities_surfaces_kev_in_add_info():
+    components = _components_with_one_cve()
+    cve_paas_data = {
+        "CVE-2024-0001": {
+            "Priority": "Medium",
+            "Details": {
+                "is_exploited": True, "is_poc": False, "is_template": False,
+                "Links": {
+                    "CISA KEV": {"url": "https://www.cisa.gov/kev/CVE-2024-0001"},
+                    "POC": [],
+                    "Nuclei templates": {},
+                },
+            },
+        },
+    }
+    reports._attach_vulnerabilities(components, _vuln_payload("CVE-2024-0001"),
+                                    {}, cve_paas_data)
+    vulns = components["c1"]["vulnerabilities"]
+    assert len(vulns) == 1
+    v = vulns[0]
+    assert v["is_kev"] is True
+    assert "KEV: https://www.cisa.gov/kev/CVE-2024-0001" in v["add_info"]
+
+
+def test_attach_vulnerabilities_surfaces_poc_and_nuclei():
+    components = _components_with_one_cve()
+    cve_paas_data = {
+        "CVE-2024-0001": {
+            "Priority": "Medium",  # not "Critical" - flags should still surface
+            "Details": {
+                "is_exploited": False, "is_poc": True, "is_template": True,
+                "CVSS": 7.5, "EPSS": 0.123,
+                "Links": {
+                    "POC": [{"url": "https://github.com/poc/exploit"}],
+                    "Nuclei templates": {"template_url": "https://nuclei/lib"},
+                    "CISA KEV": {},
+                },
+            },
+        },
+    }
+    reports._attach_vulnerabilities(components, _vuln_payload("CVE-2024-0001"),
+                                    {}, cve_paas_data)
+    v = components["c1"]["vulnerabilities"][0]
+    assert v["is_poc"] is True
+    assert v["is_nuclei_template"] is True
+    assert "POC: https://github.com/poc/exploit" in v["add_info"]
+    assert "Nuclei: https://nuclei/lib" in v["add_info"]
+    assert v["cvss"] == 7.5
+    assert v["epss"] == 0.123
+
+
+def test_attach_vulnerabilities_no_enrichment_when_paas_silent():
+    """ Without CVE-PaaS data, the new fields are absent / falsy """
+    components = _components_with_one_cve()
+    reports._attach_vulnerabilities(components, _vuln_payload("CVE-2024-0001"),
+                                    {}, {})
+    v = components["c1"]["vulnerabilities"][0]
+    assert v["add_info"] == ""
+    assert v["is_kev"] is False
+    assert v["is_poc"] is False
+    assert v["is_nuclei_template"] is False
+    assert v["cvss"] is None
+    assert v["epss"] is None
