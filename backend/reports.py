@@ -261,9 +261,18 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=N
                 vuln_word_link = vuln_id
             severity_level, severity = get_severity(list(x.get("severity")
                                                          for x in vuln.get("ratings")))
-            cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
-              verify=verify_tls(), timeout=http_timeout()).text) \
-              if os.getenv("CVEPAAS_URL") and cve_id else {}
+            cve_paas = {}
+            if os.getenv("CVEPAAS_URL") and cve_id:
+                cvepaas_headers = {}
+                cvepaas_key = os.getenv("DTRG_CVEPAAS_KEY")
+                if cvepaas_key:
+                    cvepaas_headers["X-API-Key"] = cvepaas_key
+                cve_paas = requests.get(
+                    os.getenv("CVEPAAS_URL").rstrip("/") + "/v1/get_info/" + cve_id,
+                    headers=cvepaas_headers,
+                    verify=verify_tls(),
+                    timeout=http_timeout(),
+                ).json()
             add_info = []
             if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
                 links = cve_paas["Details"]["Links"]
