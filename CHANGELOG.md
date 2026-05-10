@@ -5,28 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [2.2.0]
-
-### Added
-
-- **Diff between project versions.** New endpoints `POST /reports/diff` (form) and `POST /api/v1/reports/diff` (JSON, CSRF-exempt, gated by `DTRG_API_KEY`). Takes two DT project UUIDs; returns a ZIP with `result.xlsx` (four sheets: `General information`, `Added`, `Removed`, `Common`) plus `summary.json` (`kind: "diff"`) describing what was added, removed and stayed common between the two snapshots. Common entries carry both component versions and both VEX analysis states, so a CVE that travelled with a library upgrade is visible at a glance.
-- The browser form gains a "Compare with another version" checkbox. When checked, a second project select appears (lazy-loaded, debounced search, paginated — same UX as the main one) and the form's submit posts to `/reports/diff` instead of `/reports/get_report`.
-
-### Changed
-
-- `create_report` is now a thin orchestrator over named helpers (`_resolve_params`, `_load_project`, `_render_docx` / `_render_xlsx` / `_render_summary`). No behaviour change.
-
 ## [2.1.0]
 
 ### Added
 
 - `summary.json` bundled in every report ZIP next to `result.docx` / `result.xlsx`. Carries the project metadata and the vulnerable-components list in a JSON-serializable shape (versioned via `schemaVersion: 1`) so CI pipelines can do severity gates, dashboards or diffing without parsing Office files.
 - Docker images now publish for `linux/amd64` **and** `linux/arm64`. Apple Silicon dev machines and arm SBCs (Raspberry Pi, Ampere) get a native image instead of QEMU emulation.
+- **Diff between project versions.** New endpoints `POST /reports/diff` (form) and `POST /api/v1/reports/diff` (JSON, CSRF-exempt, gated by `DTRG_API_KEY`). Takes two DT project UUIDs; returns a ZIP with `result.xlsx` (four sheets: `General information`, `Added`, `Removed`, `Common`) plus `summary.json` (`kind: "diff"`) describing what was added, removed and stayed common between the two snapshots. Common entries carry both component versions and both VEX analysis states, so a CVE that travelled with a library upgrade is visible at a glance.
+- The browser form gains a "Compare with another version" checkbox. When checked, a second project select appears (lazy-loaded, debounced search, paginated — same UX as the main one) and the form's submit posts to `/reports/diff` instead of `/reports/get_report`.
 
 ### Changed
 
 - `pytest` runs in CI against Python 3.11, 3.12 and 3.13 (was only 3.12).
 - `GetReportForm` reads `DTRG_URL` / `DTRG_TOKEN` per request inside `__init__` rather than at class definition time, so flipping the env at runtime takes effect on the next form render without restarting the process.
+- `create_report` is now a thin orchestrator over named helpers (`_resolve_params`, `_load_project`, `_render_docx` / `_render_xlsx` / `_render_summary`). No behaviour change.
 
 ## [2.0.0]
 
