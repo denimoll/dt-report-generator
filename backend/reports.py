@@ -69,6 +69,11 @@ def _build_summary(project_name_str, project_url, project_info, vuln_components)
                         "analysisResponse": v.get("analysis_response"),
                         "analysisDetail": v.get("analysis_detail"),
                         "isSuppressed": v.get("is_suppressed"),
+                        "cvss": v.get("cvss"),
+                        "epss": v.get("epss"),
+                        "isKev": bool(v.get("is_kev", False)),
+                        "isPoc": bool(v.get("is_poc", False)),
+                        "isNucleiTemplate": bool(v.get("is_nuclei_template", False)),
                     }
                     for v in c.get("vulnerabilities") or []
                 ],
@@ -211,13 +216,71 @@ _SUPPRESSED_STATES = {"resolved", "resolved_with_pedigree",
                       "false_positive", "not_affected"}
 
 
-def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=None):
+_CVE_ID_PATTERN = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
+_CVEPAAS_BATCH_SIZE = 50
+
+
+def _canonical_cve_ids(vulnerabilities):
+    """ Unique canonical CVE ids that are safe to feed to CVE-PaaS """
+    ids = set()
+    for vuln in vulnerabilities:
+        vuln_id = vuln.get("id") or ""
+        if _CVE_ID_PATTERN.fullmatch(vuln_id):
+            ids.add(vuln_id)
+    return ids
+
+
+def _fetch_cve_paas(cve_ids):
+    """ Batch-fetch CVE-PaaS enrichment for the given CVE ids.
+
+    Returns {cve_id: data_dict}. CVE-PaaS exposes POST /v1/cve which
+    accepts up to 50 ids per call, so we chunk. Any failure (network,
+    non-2xx, malformed JSON) is logged and skipped - the report is
+    rendered without enrichment for that batch instead of being
+    aborted (graceful degradation).
+    """
+    base_url = (os.getenv("CVEPAAS_URL") or "").rstrip("/")
+    if not base_url or not cve_ids:
+        return {}
+    headers = {}
+    key = os.getenv("DTRG_CVEPAAS_KEY")
+    if key:
+        headers["X-API-Key"] = key
+    result = {}
+    cve_list = sorted(cve_ids)
+    for i in range(0, len(cve_list), _CVEPAAS_BATCH_SIZE):
+        batch = cve_list[i:i + _CVEPAAS_BATCH_SIZE]
+        try:
+            res = requests.post(
+                base_url + "/v1/cve",
+                json={"cve_ids": batch},
+                headers=headers,
+                verify=verify_tls(),
+                timeout=http_timeout(),
+            )
+            res.raise_for_status()
+            payload = res.json()
+            if isinstance(payload, dict):
+                result.update(payload)
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                f"CVE-PaaS batch fetch failed ({len(batch)} ids): {e}; "
+                f"continuing without enrichment for this batch"
+            )
+            continue
+    logger.info(f"CVE-PaaS returned enrichment for {len(result)} of "
+                f"{len(cve_list)} requested ids")
+    return result
+
+
+def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair,
+                            cve_paas_data, doc=None):
     """ Distribute vulnerabilities across components, with VEX + CVE-PaaS data.
 
     For every (vuln, affected component) pair we resolve the analysis state
     (findings API wins, SBOM block is the fallback for response/detail),
-    build the per-vuln link, optionally enrich the entry from CVE-PaaS for
-    canonical CVE ids, and append the result to the component's
+    build the per-vuln link, look up CVE-PaaS enrichment from the
+    pre-fetched cve_paas_data dict, and append the result to the component's
     vulnerabilities list. The doc handle is needed for docxtpl's hyperlink
     builder; pass None when only xlsx/json output is wanted (e.g. diff
     reports) and word_link will fall back to the plain id.
@@ -244,9 +307,8 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=N
             )
             if "cve" in vuln_id.lower():
                 vuln_link = "https://nvd.nist.gov/vuln/detail/"+vuln_id
-                # only canonical CVE-YYYY-NNNN ids may flow into the CVE-PaaS URL
-                cve_id = vuln_id if re.fullmatch(r"CVE-\d{4}-\d{4,7}",
-                                                 vuln_id, re.IGNORECASE) else ""
+                # only canonical CVE-YYYY-NNNN ids have an entry in cve_paas_data
+                cve_id = vuln_id if _CVE_ID_PATTERN.fullmatch(vuln_id) else ""
             elif "ghsa" in vuln_id.lower():
                 vuln_link = "https://github.com/advisories/"+vuln_id
 # https://docs.github.com/en/rest/security-advisories/global-advisories?apiVersion=2022-11-28
@@ -261,16 +323,31 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=N
                 vuln_word_link = vuln_id
             severity_level, severity = get_severity(list(x.get("severity")
                                                          for x in vuln.get("ratings")))
-            cve_paas = json.loads(requests.get(os.getenv("CVEPAAS_URL")+"/get_info/"+cve_id,
-              verify=verify_tls(), timeout=http_timeout()).text) \
-              if os.getenv("CVEPAAS_URL") and cve_id else {}
+            cve_paas = cve_paas_data.get(cve_id, {}) if cve_id else {}
+            details = cve_paas.get("Details") or {}
+            links = details.get("Links") or {}
+            is_kev = bool(details.get("is_exploited"))
+            is_poc = bool(details.get("is_poc"))
+            is_template = bool(details.get("is_template"))
+            # Surface KEV / POC / Nuclei links in add_info regardless of
+            # priority - the boolean flags from CVE-PaaS already gate the
+            # presence of useful URLs, no need to also gate on Priority.
             add_info = []
-            if cve_paas.get("Priority") and cve_paas.get("Priority").lower() == "critical":
-                links = cve_paas["Details"]["Links"]
-                for link in links.get("POC"):
-                    add_info.append(link.get("url"))
-                if links.get("Nuclei templates"):
-                    add_info.append(links["Nuclei templates"].get("template_url"))
+            if is_kev:
+                kev_link = links.get("CISA KEV") or {}
+                kev_url = kev_link.get("url")
+                if kev_url:
+                    add_info.append(f"KEV: {kev_url}")
+            if is_poc:
+                for poc in links.get("POC") or []:
+                    poc_url = (poc or {}).get("url")
+                    if poc_url:
+                        add_info.append(f"POC: {poc_url}")
+            if is_template:
+                nuclei = links.get("Nuclei templates") or {}
+                template_url = nuclei.get("template_url")
+                if template_url:
+                    add_info.append(f"Nuclei: {template_url}")
             components[component_ref]["vulnerabilities"].append({
                 "uuid": vuln.get("bom-ref"),
                 "id": vuln_id,
@@ -285,6 +362,11 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc=N
                 "analysis_response": analysis_response,
                 "analysis_detail": analysis_detail,
                 "is_suppressed": is_suppressed,
+                "cvss": details.get("CVSS"),
+                "epss": details.get("EPSS"),
+                "is_kev": is_kev,
+                "is_poc": is_poc,
+                "is_nuclei_template": is_template,
             })
     logger.info("Vulnerabilities assigned to components")
 
@@ -455,6 +537,11 @@ def compute_diff(data_a, data_b):
             "priority": vuln.get("priority"),
             "analysisState": vuln.get("analysis_state") or "",
             "isSuppressed": bool(vuln.get("is_suppressed", False)),
+            "cvss": vuln.get("cvss"),
+            "epss": vuln.get("epss"),
+            "isKev": bool(vuln.get("is_kev", False)),
+            "isPoc": bool(vuln.get("is_poc", False)),
+            "isNucleiTemplate": bool(vuln.get("is_nuclei_template", False)),
         }
 
     idx_a = _index(data_a)
@@ -481,6 +568,12 @@ def compute_diff(data_a, data_b):
             "analysisStateB": vb.get("analysis_state") or "",
             "isSuppressedA": bool(va.get("is_suppressed", False)),
             "isSuppressedB": bool(vb.get("is_suppressed", False)),
+            "cvss": vb.get("cvss") or va.get("cvss"),
+            "epss": vb.get("epss") or va.get("epss"),
+            "isKev": bool(vb.get("is_kev", False) or va.get("is_kev", False)),
+            "isPoc": bool(vb.get("is_poc", False) or va.get("is_poc", False)),
+            "isNucleiTemplate": bool(vb.get("is_nuclei_template", False)
+                                     or va.get("is_nuclei_template", False)),
         })
     return {"added": added, "removed": removed, "common": common}
 
@@ -501,7 +594,9 @@ def _load_project(url, headers, project, doc=None):
     analysis_by_pair = _fetch_findings(url, headers, project)
     components = _fetch_components(url, headers, project,
                                    direct_uuids, deps_deps)
-    _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair, doc)
+    cve_paas_data = _fetch_cve_paas(_canonical_cve_ids(vulnerabilities))
+    _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair,
+                            cve_paas_data, doc)
     _filter_suppressed(components, project_info)
     _compute_severity(components)
     vuln_components = _sort_vulnerable(components)

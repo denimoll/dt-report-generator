@@ -23,6 +23,8 @@ from flask import (
 )
 from flasgger import Swagger
 from flask_bootstrap import Bootstrap5
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 
@@ -44,6 +46,27 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
 csrf = CSRFProtect(app)
+
+# Rate limit on /api/v1/* only. Empty DTRG_API_RATE_LIMIT disables.
+# Form routes / probes / Swagger are not limited.
+_API_RATE_LIMIT = os.getenv("DTRG_API_RATE_LIMIT", "60/minute").strip()
+limiter = Limiter(get_remote_address, app=app, default_limits=[],
+                  storage_uri="memory://")
+
+
+@app.errorhandler(429)
+def _ratelimit_json(err):
+    """ Return JSON for /api/v1/* clients (default Flask-Limiter is HTML) """
+    if request.path.startswith("/api/v1/"):
+        return jsonify(error="rate_limited", description=str(err.description)), 429
+    return err
+
+
+def _api_limit():
+    """ Decorator that applies the configured rate limit, or no-op when empty """
+    if not _API_RATE_LIMIT:
+        return lambda view: view
+    return limiter.limit(_API_RATE_LIMIT)
 
 # OpenAPI / Swagger UI at /apidocs/, raw spec at /apispec.json.
 swagger = Swagger(app, config={
@@ -272,6 +295,7 @@ def get_report():
 
 @app.route("/api/v1/reports/get_report", methods=["POST"])
 @csrf.exempt
+@_api_limit()
 @require_api_key
 def get_report_api():
     """Generate a DT report and return it as a ZIP.
@@ -416,6 +440,7 @@ def get_diff_report():
 
 @app.route("/api/v1/reports/diff", methods=["POST"])
 @csrf.exempt
+@_api_limit()
 @require_api_key
 def get_diff_report_api():
     """Generate a diff report between two DT projects and return it as a ZIP.
@@ -570,6 +595,7 @@ def get_all_projects():
 
 @app.route("/api/v1/projects", methods=["POST"])
 @csrf.exempt
+@_api_limit()
 @require_api_key
 def get_all_projects_api():
     """List Dependency-Track projects.
