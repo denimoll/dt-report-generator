@@ -132,7 +132,7 @@ Planned functionality:
 
 - [x] *Quick wins (2.1.0)*. `summary.json` bundled in the report ZIP; multi-arch Docker (`linux/amd64`+`linux/arm64`); CI matrix Python 3.11/3.12/3.13; per-request env in `GetReportForm`.
 
-- [x] *Diff between project versions (2.2.0)*. New endpoints `/reports/diff` and `/api/v1/reports/diff`; checkbox on the form reveals the second project select. ZIP carries `result.xlsx` + `summary.json` describing what was added, removed or stayed common.
+- [x] *Diff between project versions (2.1.0)*. New endpoints `/reports/diff` and `/api/v1/reports/diff`; checkbox on the form reveals the second project select. ZIP carries `result.xlsx` + `summary.json` describing what was added, removed or stayed common.
 
 ### Next up
 - [ ] *Diff docx template*. Word version of the diff report once a `draft_diff.docx` is designed; xlsx is the only renderer for diff today.
