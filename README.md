@@ -134,9 +134,6 @@ Planned functionality:
 
 - [x] *Diff between project versions (2.1.0)*. New endpoints `/reports/diff` and `/api/v1/reports/diff`; checkbox on the form reveals the second project select. ZIP carries `result.xlsx` + `summary.json` describing what was added, removed or stayed common.
 
-### Next up
-- [ ] *Diff docx template*. Word version of the diff report once a `draft_diff.docx` is designed; xlsx is the only renderer for diff today.
-
 ### CVE-PaaS collaboration
 Caching is intentionally out of scope here — CVE-PaaS owns it on its side.
 - [ ] *Graceful degradation*. When CVE-PaaS is down or slow, finish the report without enrichment instead of failing the whole run.
