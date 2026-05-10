@@ -78,6 +78,57 @@ def test_check_format_url_rejects_empty():
         pv.check_format_url("")
 
 
+# DTRG_ALLOWED_HOSTS
+
+def test_allowed_hosts_empty_when_env_unset(monkeypatch):
+    monkeypatch.delenv("DTRG_ALLOWED_HOSTS", raising=False)
+    assert pv.allowed_hosts() == []
+
+
+def test_allowed_hosts_parses_comma_separated(monkeypatch):
+    monkeypatch.setenv("DTRG_ALLOWED_HOSTS", "DT.example.com, *.dev.example.com ,host3")
+    assert pv.allowed_hosts() == ["dt.example.com", "*.dev.example.com", "host3"]
+
+
+def test_host_matches_exact():
+    assert pv.host_matches("dt.example.com", "dt.example.com") is True
+    assert pv.host_matches("dt.example.com", "DT.Example.COM") is True
+    assert pv.host_matches("evil.com", "dt.example.com") is False
+
+
+def test_host_matches_wildcard():
+    assert pv.host_matches("a.example.com", "*.example.com") is True
+    assert pv.host_matches("x.y.example.com", "*.example.com") is True
+    # bare apex does NOT match a *.subdomain pattern
+    assert pv.host_matches("example.com", "*.example.com") is False
+    # similar-looking but different domain should not match
+    assert pv.host_matches("a.example.com.evil.com", "*.example.com") is False
+
+
+def test_check_format_url_passes_when_host_in_allowlist(monkeypatch):
+    monkeypatch.setenv("DTRG_ALLOWED_HOSTS", "dt.example.com")
+    assert pv.check_format_url("https://dt.example.com") == "https://dt.example.com/api/v1/"
+
+
+def test_check_format_url_passes_with_wildcard(monkeypatch):
+    monkeypatch.setenv("DTRG_ALLOWED_HOSTS", "*.example.com")
+    assert pv.check_format_url("https://eu.dt.example.com") == \
+        "https://eu.dt.example.com/api/v1/"
+
+
+def test_check_format_url_rejects_host_outside_allowlist(monkeypatch):
+    monkeypatch.setenv("DTRG_ALLOWED_HOSTS", "dt.example.com")
+    with pytest.raises(ValueError, match="not allowed"):
+        pv.check_format_url("https://169.254.169.254/")
+
+
+def test_check_format_url_no_restriction_when_env_unset(monkeypatch):
+    monkeypatch.delenv("DTRG_ALLOWED_HOSTS", raising=False)
+    # any well-formed URL passes — allowlist disabled by default
+    assert pv.check_format_url("https://internal.intranet") == \
+        "https://internal.intranet/api/v1/"
+
+
 # check_token
 
 def _ok_response():
