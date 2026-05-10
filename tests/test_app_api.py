@@ -264,6 +264,41 @@ def test_api_diff_400_on_missing_url(client):
     assert res.status_code == 400
 
 
+# Rate limiting
+
+def test_health_is_not_rate_limited(monkeypatch):
+    """ /health is a probe target; rate limit must never apply """
+    # Even with a 1/day limit configured, /health should be free.
+    monkeypatch.setattr(app_module, "_API_RATE_LIMIT", "1/day")
+    app_module.app.config.update(TESTING=True)
+    with app_module.app.test_client() as c:
+        for _ in range(5):
+            res = c.get("/health")
+            assert res.status_code == 200
+
+
+def test_429_handler_returns_json_for_api_path():
+    """ /api/v1/* clients must get JSON on rate-limit, not the default HTML """
+    from werkzeug.exceptions import TooManyRequests
+    err = TooManyRequests(description="2 per 1 minute")
+    with app_module.app.test_request_context("/api/v1/projects"):
+        response, status = app_module._ratelimit_json(err)
+    assert status == 429
+    assert response.headers["Content-Type"].startswith("application/json")
+    body = response.get_json()
+    assert body["error"] == "rate_limited"
+    assert "2 per 1 minute" in body["description"]
+
+
+def test_429_handler_passthrough_for_form_path():
+    """ Non-API paths get Flask-Limiter's default (HTML) handling """
+    from werkzeug.exceptions import TooManyRequests
+    err = TooManyRequests(description="test")
+    with app_module.app.test_request_context("/reports/get_report"):
+        result = app_module._ratelimit_json(err)
+    assert result is err  # passthrough means default error handler picks up
+
+
 def test_api_diff_passes_two_uuids_into_create_diff_report(client):
     """ Both project ids reach the backend's create_diff_report call """
     with patch.object(app_module, "create_diff_report",
