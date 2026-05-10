@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CVE-PaaS batch fetch.** dtrg now collects every canonical CVE id from the SBOM and asks CVE-PaaS for them in a single `POST /v1/cve` call (chunked into batches of 50). Replaces the per-CVE round-trip and slashes report time on large projects.
 - **Wider CVE-PaaS enrichment.** CVSS score, EPSS score and the `is_kev` / `is_poc` / `is_nuclei_template` flags from CVE-PaaS now reach each vulnerability. The `Additional info` column in the Excel report carries `KEV: <url>` / `POC: <url>` / `Nuclei: <url>` lines for any priority that has them; `summary.json` exposes `cvss`, `epss`, `isKev`, `isPoc`, `isNucleiTemplate` per vulnerability and inside diff entries.
 - **Rate limit on `/api/v1/*`.** Flask-Limiter caps requests per client IP. Default `60/minute`, configurable via the new `DTRG_API_RATE_LIMIT` env (empty disables). 429 responses are JSON for `/api/v1/*` callers; the form routes and `/health` stay unlimited.
-- New env vars: `DTRG_API_RATE_LIMIT`, `DTRG_CVEPAAS_KEY`.
+- **SSRF allowlist for the DT URL.** New `DTRG_ALLOWED_HOSTS` env (comma-separated, `*.subdomain` wildcards supported). When set, the URL accepted from the form / API must match one of the patterns or `check_format_url` rejects it before any HTTP call goes out. Empty by default - on-prem deployments keep the previous "any host" behaviour.
+- New env vars: `DTRG_API_RATE_LIMIT`, `DTRG_CVEPAAS_KEY`, `DTRG_ALLOWED_HOSTS`.
 
 ### Changed
 
