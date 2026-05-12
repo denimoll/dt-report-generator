@@ -8,5 +8,5 @@ openpyxl==3.1.5
 
 anytree==2.13.0
 
-requests==2.33.1
+requests==2.34.0
 validators==0.35.0
