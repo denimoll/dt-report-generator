@@ -146,7 +146,10 @@ def index():
         description: HTML page with the report-generation form.
     """
     form = GetReportForm()
-    return render_template("index.html", form=form)
+    return render_template("index.html",
+        form=form,
+        has_env_url=bool(os.getenv("DTRG_URL")),
+        has_env_token=bool(os.getenv("DTRG_TOKEN")))
 
 
 # REPORTS GROUP
