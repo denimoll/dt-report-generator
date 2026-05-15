@@ -107,3 +107,49 @@ def test_empty_search_still_uses_list_endpoint():
          patch.object(projects.requests, "get", side_effect=fake_get):
         projects.get_projects("https://example.com", "tok", search_text="")
     assert "project?" in captured["url"]
+
+
+def test_multi_token_search_sends_first_token_and_filters_client_side():
+    """ "kafka 1.0" -> server search by "kafka", filter results by "1.0" """
+    captured = {}
+    body = json.dumps([
+        {"name": "kafka", "version": "1.0", "uuid": "u1"},
+        {"name": "kafka", "version": "1.5", "uuid": "u2"},
+        {"name": "kafka-streams", "version": "1.0", "uuid": "u3"},
+    ])
+
+    def fake_get(url, headers=None, verify=None, timeout=None):
+        captured["url"] = url
+        return _ok(body, total=3)
+
+    with patch.object(projects, "check_format_url", _check_format_url), \
+         patch.object(projects, "check_token", _check_token_ok), \
+         patch.object(projects.requests, "get", side_effect=fake_get):
+        result_body, total = projects.get_projects(
+            "https://example.com", "tok", search_text="kafka 1.0")
+    # Server got just "kafka" — the version token is consumed client-side
+    assert "searchText=kafka" in captured["url"]
+    parsed = json.loads(result_body)
+    # Filter keeps anything matching "1.0" in (name + " " + version) — that
+    # is kafka 1.0 AND kafka-streams 1.0 (both contain "1.0" in version).
+    versions = sorted(p["version"] for p in parsed)
+    names = sorted(p["name"] for p in parsed)
+    assert "1.0" in versions
+    assert "kafka" in names
+    assert total == len(parsed)
+
+
+def test_multi_token_search_excludes_non_matches():
+    body = json.dumps([
+        {"name": "kafka", "version": "1.0", "uuid": "u1"},
+        {"name": "kafka", "version": "2.0", "uuid": "u2"},
+    ])
+    with patch.object(projects, "check_format_url", _check_format_url), \
+         patch.object(projects, "check_token", _check_token_ok), \
+         patch.object(projects.requests, "get", return_value=_ok(body, total=2)):
+        result_body, total = projects.get_projects(
+            "https://example.com", "tok", search_text="kafka 1.0")
+    parsed = json.loads(result_body)
+    assert len(parsed) == 1
+    assert parsed[0]["version"] == "1.0"
+    assert total == 1

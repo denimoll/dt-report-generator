@@ -20,11 +20,16 @@ _UUID_PATTERN = re.compile(
 def get_projects(url, token, search_text="", page_size=99999, page_number=1):
     """ Fetch a page of DT projects.
 
-    When `search_text` is a canonical UUID, the lookup is performed against
-    DT's per-project endpoint (the list endpoint's searchText only matches
-    by name, so typing a UUID into the form's search box was returning
-    nothing). The result is wrapped into a one-element list so the caller
-    contract (JSON array, X-Total-Count) stays uniform.
+    Search semantics:
+
+    - Canonical UUID -> direct /project/<uuid> lookup. DT's list endpoint
+      matches searchText only by name, so a typed UUID would return nothing.
+    - Multi-token text (e.g. "kafka 1.0" or "<lockedName> 1.0") -> the first
+      token goes to DT as searchText (name match), the remaining tokens are
+      filtered client-side against "<name> <version>" so the dropdown can
+      narrow by version too. Useful in diff mode when one project has many
+      versions.
+    - Single token -> existing behaviour (DT searchText).
 
     Returns a (body, total) tuple. On success body is the raw JSON text
     DT returned and total is the value of DT's X-Total-Count header.
@@ -36,11 +41,12 @@ def get_projects(url, token, search_text="", page_size=99999, page_number=1):
         # validate parameters
         url = check_format_url(url)
         headers = check_token(token, url)
+        text = (search_text or "").strip()
 
-        if _UUID_PATTERN.fullmatch((search_text or "").strip()):
+        if _UUID_PATTERN.fullmatch(text):
             # Direct per-project lookup. 404 means "no such uuid" and is
             # rendered as an empty list so the dropdown stays sane.
-            uuid = search_text.strip()
+            uuid = text
             res = requests.get(
                 f"{url}project/{uuid}",
                 headers=headers, verify=verify_tls(), timeout=http_timeout(),
@@ -54,9 +60,13 @@ def get_projects(url, token, search_text="", page_size=99999, page_number=1):
                 return {"error": "Request to Dependency-Track failed"}, 0
             return json.dumps([res.json()]), 1
 
+        tokens = text.split()
+        primary = tokens[0] if tokens else ""
+        extra_filters = [t.lower() for t in tokens[1:]]
+
         endpoint = (
             f"{url}project?excludeInactive=true&onlyRoot=false"
-            f"&searchText={quote(search_text)}"
+            f"&searchText={quote(primary)}"
             f"&sortName=lastBomImport&sortOrder=desc"
             f"&pageSize={page_size}&pageNumber={page_number}"
         )
@@ -72,6 +82,22 @@ def get_projects(url, token, search_text="", page_size=99999, page_number=1):
             total = int(res.headers.get("X-Total-Count") or "0")
         except ValueError:
             total = 0
+
+        if extra_filters:
+            try:
+                data = json.loads(res.text)
+            except (TypeError, ValueError):
+                return res.text, total
+            filtered = []
+            for project in data:
+                haystack = (f"{project.get('name') or ''} "
+                            f"{project.get('version') or ''}").lower()
+                if all(tok in haystack for tok in extra_filters):
+                    filtered.append(project)
+            logger.debug(f"Client-side filter {extra_filters!r}: "
+                         f"{len(data)} -> {len(filtered)}")
+            return json.dumps(filtered), len(filtered)
+
         logger.debug(f"Fetched {res.text.count('uuid')} projects, total={total}")
         return res.text, total
     except requests.RequestException as e:

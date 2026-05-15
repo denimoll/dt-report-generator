@@ -93,6 +93,8 @@
             // versions of the same project.
             var projectAName = null;
 
+            var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
             function buildAjaxConfig(opts) {
                 var nameLockFn = opts.nameLockFn || null;  // returns the locked name, or null
                 return {
@@ -105,11 +107,29 @@
                     data: function (params) {
                         sessionStorage.setItem("url", $("#url").val());
                         sessionStorage.setItem("token", $("#token").val());
+                        var typed = (params.term || "").trim();
                         var lockedName = nameLockFn ? nameLockFn() : null;
+                        // UUID input always overrides the name lock (server
+                        // does a direct /project/<uuid> lookup). Otherwise,
+                        // when a name lock is active, we send "lockedName
+                        // <typed>" so the server filters by name and we
+                        // further narrow by what the user typed
+                        // (version / UUID-fragment / anything matching
+                        // "<name> <version>" on the server side).
+                        var searchText;
+                        if (UUID_RE.test(typed)) {
+                            searchText = typed;
+                        } else if (lockedName) {
+                            searchText = typed
+                                ? lockedName + " " + typed
+                                : lockedName;
+                        } else {
+                            searchText = typed;
+                        }
                         return {
                             "url": $("#url").val(),
                             "token": $("#token").val(),
-                            "searchText": lockedName || params.term || "",
+                            "searchText": searchText,
                             "pageNumber": params.page || 1,
                             "csrf_token": $('input[name="csrf_token"]').val()
                         };
