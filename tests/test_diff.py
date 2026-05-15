@@ -70,9 +70,19 @@ def test_compute_diff_finds_common_with_version_change():
     common = result["common"][0]
     assert common["componentVersionA"] == "1.0"
     assert common["componentVersionB"] == "1.5"
+    assert common["versionChanged"] is True
     assert common["vulnerability"] == "CVE-2024-0001"
     assert result["added"] == []
     assert result["removed"] == []
+
+
+def test_compute_diff_common_version_unchanged_flag():
+    """ Same CVE on same version in both projects -> versionChanged is False """
+    a = _data(_component("libA", "1.0", [_vuln("CVE-2024-0001")]))
+    b = _data(_component("libA", "1.0", [_vuln("CVE-2024-0001")]))
+    result = compute_diff(a, b)
+    assert len(result["common"]) == 1
+    assert result["common"][0]["versionChanged"] is False
 
 
 def test_compute_diff_distinguishes_groups():

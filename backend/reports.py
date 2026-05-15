@@ -589,6 +589,7 @@ def compute_diff(data_a, data_b):
             "group": ca.get("group") or "",
             "componentVersionA": ca.get("version"),
             "componentVersionB": cb.get("version"),
+            "versionChanged": ca.get("version") != cb.get("version"),
             "vulnerability": va.get("id"),
             "link": vb.get("link") or va.get("link"),
             "severity": vb.get("severity"),
