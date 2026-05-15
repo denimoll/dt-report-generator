@@ -121,12 +121,16 @@ def _fetch_project_info(url, headers, project):
     text = res.json()
     project_name_str = text.get("name")
     metrics = text.get("metrics") or {}
+    last_bom_ms = int(text.get("lastBomImport") or 0)
     project_info = {
         # Plain string here; the docx render step decorates it as a hyperlink
         "name": project_name_str,
         "version": text.get("version") or "no version",
-        "lastBomImport": datetime.fromtimestamp(int(text.get("lastBomImport") or
-                                                0)/1000).strftime("%d.%m.%Y %H:%M"),
+        "lastBomImport": datetime.fromtimestamp(last_bom_ms / 1000).strftime(
+            "%d.%m.%Y %H:%M"),
+        # Raw epoch (ms) for chronological comparisons (e.g. diff A/B swap).
+        # Stays out of the user-facing report.
+        "lastBomImportTimestamp": last_bom_ms,
         "date": datetime.now().strftime("%d.%m.%Y %H:%M"),
         "componentsCount": metrics.get("components"),
         "vulnsCount": metrics.get("vulnerabilities"),
@@ -780,6 +784,17 @@ def create_diff_report(config_a, config_b, output_dir):
         url_b, headers_b, project_b = _resolve_params(config_b)
         data_a = _load_project(url_a, headers_a, project_a)
         data_b = _load_project(url_b, headers_b, project_b)
+        # Ensure A is the older snapshot and B is the newer one, regardless of
+        # the order the caller passed them in. We compare DT's lastBomImport
+        # timestamp (epoch ms). Equal or missing timestamps leave the order
+        # alone.
+        ts_a = data_a["info"].get("lastBomImportTimestamp") or 0
+        ts_b = data_b["info"].get("lastBomImportTimestamp") or 0
+        if ts_a > ts_b:
+            logger.info("Swapping A/B so the newer project is B "
+                        f"(ts_a={ts_a} > ts_b={ts_b})")
+            data_a, data_b = data_b, data_a
+            project_a, project_b = project_b, project_a
         diff = compute_diff(data_a, data_b)
         logger.info(f"Diff computed: +{len(diff['added'])} added, "
                     f"-{len(diff['removed'])} removed, "
