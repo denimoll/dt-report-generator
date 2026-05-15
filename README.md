@@ -1,6 +1,4 @@
 # dt-report-generator (dtrg) <img width="30" src="./static/icon.svg"/>
-
-> **Note:** version 2.0.0 brings several breaking changes (TLS verification on by default, CSRF enforced on form endpoints, Docker runs as non-root, new env vars). See [CHANGELOG.md](CHANGELOG.md) for the full list before upgrading.
 ## Main information
 Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) and Excel (.xlsx) formats.\
 More information about tool and how to use it can be found in the articles on habr [1](https://habr.com/ru/articles/860536/), [2](https://habr.com/ru/articles/900276/) (rus).
