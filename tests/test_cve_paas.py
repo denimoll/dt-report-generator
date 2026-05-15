@@ -226,3 +226,62 @@ def test_attach_vulnerabilities_no_enrichment_when_paas_silent():
     assert v["is_nuclei_template"] is False
     assert v["cvss"] is None
     assert v["epss"] is None
+
+
+# Severity rollup when CVE-PaaS returns Undefined
+
+def test_compute_severity_falls_back_to_severity_minus_one_for_undefined(monkeypatch):
+    """ Priority == "undefined" -> downgrade severity by one tier """
+    monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
+    components = {
+        "c1": {
+            "vulnerabilities": [
+                {"severity": "high", "priority": "undefined"},
+                {"severity": "medium", "priority": "undefined"},
+            ],
+            "severity": "", "severity_level": 0,
+        },
+    }
+    reports._compute_severity(components)
+    # max of high->medium (level 2) and medium->low (level 1) is medium
+    assert components["c1"]["severity"] == "medium"
+    assert components["c1"]["severity_level"] == 2
+
+
+def test_compute_severity_low_stays_low_on_undefined(monkeypatch):
+    """ low -> low (clamp, not down to info) """
+    monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
+    components = {
+        "c1": {"vulnerabilities": [{"severity": "low", "priority": "undefined"}],
+               "severity": "", "severity_level": 0},
+    }
+    reports._compute_severity(components)
+    assert components["c1"]["severity"] == "low"
+
+
+def test_compute_severity_uses_priority_when_set(monkeypatch):
+    """ Real priority wins over severity (existing behaviour, kept) """
+    monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
+    components = {
+        "c1": {"vulnerabilities": [{"severity": "low", "priority": "critical"}],
+               "severity": "", "severity_level": 0},
+    }
+    reports._compute_severity(components)
+    assert components["c1"]["severity"] == "critical"
+
+
+def test_compute_severity_mixed_defined_and_undefined(monkeypatch):
+    """ One CVE with real priority, one undefined: max wins """
+    monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
+    components = {
+        "c1": {
+            "vulnerabilities": [
+                {"severity": "high", "priority": "undefined"},  # -> medium
+                {"severity": "low", "priority": "low"},         # -> low
+            ],
+            "severity": "", "severity_level": 0,
+        },
+    }
+    reports._compute_severity(components)
+    # max(medium, low) = medium
+    assert components["c1"]["severity"] == "medium"

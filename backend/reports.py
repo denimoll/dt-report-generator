@@ -398,6 +398,34 @@ def _filter_suppressed(components, project_info):
                 f"(included in report: {include_suppressed})")
 
 
+# When CVE-PaaS does not classify a CVE (Priority == "Undefined"), we fall
+# back to its raw severity demoted by one tier. The rationale: CVE-PaaS
+# already decided the CVE is not interesting enough to label, so treating
+# it at full severity over-counts; treating it at unknown under-counts.
+_SEVERITY_DOWNGRADE = {
+    "critical": "high",
+    "high": "medium",
+    "medium": "low",
+    "low": "low",
+    "info": "info",
+    "unknown": "info",
+    "undefined": "info",
+}
+
+
+def _effective_priority(vuln):
+    """ Priority used for component-severity rollup when CVE-PaaS is on.
+
+    "Undefined" means CVE-PaaS could not classify the CVE, so we substitute
+    the raw severity demoted one tier. Everything else passes through.
+    """
+    priority = (vuln.get("priority") or "").lower()
+    if priority and priority != "undefined":
+        return priority
+    severity = (vuln.get("severity") or "").lower()
+    return _SEVERITY_DOWNGRADE.get(severity, severity)
+
+
 def _compute_severity(components):
     """ Roll up the per-component severity from its remaining vulns """
     logger.info("Computing final severity levels for components")
@@ -407,8 +435,8 @@ def _compute_severity(components):
         if not vulns:
             continue
         if use_priority:
-            severity_level, severity = get_severity(list(x.get("priority").lower()
-                                                         for x in vulns))
+            severity_level, severity = get_severity(
+                [_effective_priority(v) for v in vulns])
         else:
             severity_level, severity = get_severity(list(x.get("severity")
                                                          for x in vulns))
