@@ -3,7 +3,7 @@
 import json
 import os
 import tempfile
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from backend import reports
 from backend.reports import compute_diff, create_diff_report
@@ -189,6 +189,43 @@ def test_create_diff_report_writes_xlsx_and_summary(monkeypatch):
     assert added_ids == []  # B has no new CVEs vs A
     assert removed_ids == ["CVE-2024-0002"]  # this one was fixed
     assert common_ids == ["CVE-2024-0001"]  # this one stayed
+
+
+def test_create_diff_report_dedups_cve_paas_into_single_batch(monkeypatch):
+    """ Diff fetches CVE-PaaS once for the union of A's and B's CVE ids """
+    monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    fa = _fake_dt_get(_payloads_for("1.0", ["CVE-2024-0001"],
+                                     last_bom_ms=1_000))
+    fb = _fake_dt_get(_payloads_for("1.1", ["CVE-2024-0001"],
+                                     last_bom_ms=2_000))
+    counter = {"get": 0}
+
+    def dispatch(url, headers=None, verify=None, timeout=None):
+        counter["get"] += 1
+        if counter["get"] == 1 or 3 <= counter["get"] <= 6:
+            return fa(url)
+        return fb(url)
+
+    post_calls = []
+    def fake_post(url, json=None, headers=None, verify=None, timeout=None):
+        post_calls.append(json)
+        res = MagicMock()
+        res.status_code = 200
+        res.raise_for_status = lambda: None
+        res.json = lambda: {}
+        return res
+
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get", side_effect=dispatch), \
+         patch.object(reports.requests, "post", side_effect=fake_post):
+        reports.create_diff_report(
+            _config("00000000-0000-0000-0000-00000000000a"),
+            _config("00000000-0000-0000-0000-00000000000b"),
+            td)
+    # Exactly one CVE-PaaS request, carrying the union (one CVE in this fixture)
+    assert len(post_calls) == 1
+    assert post_calls[0]["cve_ids"] == ["CVE-2024-0001"]
 
 
 def test_create_diff_report_swaps_so_newer_is_b(monkeypatch):

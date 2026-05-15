@@ -608,15 +608,13 @@ def compute_diff(data_a, data_b):
     return {"added": added, "removed": removed, "common": common}
 
 
-def _load_project(url, headers, project, doc=None):
-    """ Run the full per-project pipeline and return everything renderers need.
+def _load_dt_data(url, headers, project):
+    """ Pull everything dtrg needs from DT for one project, no enrichment.
 
-    Stitches together the four DT fetches and the four processing helpers
-    so callers (single-project create_report, two-project diff) do not
-    repeat the orchestration. doc is forwarded to _attach_vulnerabilities
-    for RichText hyperlinks; pass None when no docx output is needed.
-
-    Returns a dict with keys: info, name, url, components, vuln_components.
+    Returns a raw bag the finalizer can consume. Split out from _load_project
+    so the diff path can fetch both projects' DT data first, build a single
+    union of CVE ids, hit CVE-PaaS once, and then finalize both projects
+    against the shared enrichment data.
     """
     project_info, project_name_str, direct_uuids = _fetch_project_info(
         url, headers, project)
@@ -624,21 +622,43 @@ def _load_project(url, headers, project, doc=None):
     analysis_by_pair = _fetch_findings(url, headers, project)
     components = _fetch_components(url, headers, project,
                                    direct_uuids, deps_deps)
-    cve_paas_data = _fetch_cve_paas(_canonical_cve_ids(vulnerabilities))
-    _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair,
-                            cve_paas_data, doc)
-    _filter_suppressed(components, project_info)
-    _compute_severity(components)
-    vuln_components = _sort_vulnerable(components)
-    logger.info(f"{len(vuln_components)} vulnerable components found")
-    compute_graph_levels(components)
     return {
-        "info": project_info,
+        "project_info": project_info,
         "name": project_name_str,
         "url": url.split("api/v1/")[0] + "projects/" + project,
+        "vulnerabilities": vulnerabilities,
+        "analysis_by_pair": analysis_by_pair,
         "components": components,
+    }
+
+
+def _finalize_project(raw, cve_paas_data, doc=None):
+    """ Attach analysis + CVE-PaaS, filter, severity, sort, graph levels.
+
+    Returns the renderer-shaped dict {info, name, url, components,
+    vuln_components}.
+    """
+    _attach_vulnerabilities(raw["components"], raw["vulnerabilities"],
+                            raw["analysis_by_pair"], cve_paas_data, doc)
+    _filter_suppressed(raw["components"], raw["project_info"])
+    _compute_severity(raw["components"])
+    vuln_components = _sort_vulnerable(raw["components"])
+    logger.info(f"{len(vuln_components)} vulnerable components found")
+    compute_graph_levels(raw["components"])
+    return {
+        "info": raw["project_info"],
+        "name": raw["name"],
+        "url": raw["url"],
+        "components": raw["components"],
         "vuln_components": vuln_components,
     }
+
+
+def _load_project(url, headers, project, doc=None):
+    """ Single-project convenience: load DT data, fetch CVE-PaaS, finalize. """
+    raw = _load_dt_data(url, headers, project)
+    cve_paas_data = _fetch_cve_paas(_canonical_cve_ids(raw["vulnerabilities"]))
+    return _finalize_project(raw, cve_paas_data, doc)
 
 
 def create_report(config, output_dir):
@@ -814,8 +834,17 @@ def create_diff_report(config_a, config_b, output_dir):
     try:
         url_a, headers_a, project_a = _resolve_params(config_a)
         url_b, headers_b, project_b = _resolve_params(config_b)
-        data_a = _load_project(url_a, headers_a, project_a)
-        data_b = _load_project(url_b, headers_b, project_b)
+        # Load DT data first (no enrichment yet), then build a single union
+        # of canonical CVE ids and ask CVE-PaaS once for everything. This
+        # halves the CVE-PaaS round-trips on close versions where most CVEs
+        # appear in both projects.
+        raw_a = _load_dt_data(url_a, headers_a, project_a)
+        raw_b = _load_dt_data(url_b, headers_b, project_b)
+        all_cve_ids = (_canonical_cve_ids(raw_a["vulnerabilities"])
+                       | _canonical_cve_ids(raw_b["vulnerabilities"]))
+        cve_paas_data = _fetch_cve_paas(all_cve_ids)
+        data_a = _finalize_project(raw_a, cve_paas_data)
+        data_b = _finalize_project(raw_b, cve_paas_data)
         # Ensure A is the older snapshot and B is the newer one, regardless of
         # the order the caller passed them in. We compare DT's lastBomImport
         # timestamp (epoch ms). Equal or missing timestamps leave the order
