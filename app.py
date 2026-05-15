@@ -171,8 +171,8 @@ def index():
     form = GetReportForm()
     return render_template("index.html",
         form=form,
-        has_env_url=bool(os.getenv("DTRG_URL")),
-        has_env_token=bool(os.getenv("DTRG_TOKEN")))
+        has_env_url=bool(os.getenv("DT_URL")),
+        has_env_token=bool(os.getenv("DT_TOKEN")))
 
 
 # REPORTS GROUP
