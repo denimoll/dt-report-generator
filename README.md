@@ -54,7 +54,51 @@ curl -fSL -o diff.zip \
     http://dtrg.internal:5000/api/v1/reports/diff
 ```
 The ZIP contains `result.xlsx` (sheets: General information, Added, Removed, Common) and `summary.json` (`kind: "diff"`). Common entries surface both component versions and both VEX states so a CVE that travelled with a library upgrade is visible.
+
+### Working with `summary.json`
+
+Every ZIP (single report or diff) carries a machine-readable `summary.json` alongside the docx/xlsx so CI can post-process without parsing Office files. Versioned via `schemaVersion: 1`. Below are jq one-liners on top of an `unzip -p report.zip summary.json` pipe.
+
+**Single report** (`kind` absent / not `"diff"`):
+```bash
+# All vulnerable components
+unzip -p report.zip summary.json | jq '.components[] | {name, version, severity}'
+
+# Fail CI if any critical or high vuln is present
+unzip -p report.zip summary.json \
+  | jq -e '[.components[].vulnerabilities[] | select(.severity == "critical" or .severity == "high")] | length == 0'
+
+# List CVEs in CISA KEV (must-fix)
+unzip -p report.zip summary.json \
+  | jq '.components[].vulnerabilities[] | select(.isKev) | .id'
+
+# CVEs with EPSS > 50% (high exploitation probability)
+unzip -p report.zip summary.json \
+  | jq '.components[].vulnerabilities[] | select((.epss // 0) > 0.5) | {id, epss, cvss}'
+```
+
+**Diff report** (`.kind == "diff"`):
+```bash
+# Fail CI if a new critical CVE appeared in B
+unzip -p diff.zip summary.json \
+  | jq -e '[.diff.added[] | select(.severity == "critical")] | length == 0'
+
+# What was fixed going A -> B
+unzip -p diff.zip summary.json \
+  | jq '.diff.removed[] | {component, vulnerability, severity}'
+
+# CVEs that "travelled" with a library upgrade (still vulnerable, version bumped)
+unzip -p diff.zip summary.json \
+  | jq '.diff.common[] | select(.versionChanged) | {component, from: .componentVersionA, to: .componentVersionB, vulnerability}'
+
+# VEX changes between snapshots (e.g. CVE marked false_positive in newer)
+unzip -p diff.zip summary.json \
+  | jq '.diff.common[] | select(.analysisStateA != .analysisStateB)
+                       | {component, vulnerability, was: .analysisStateA, now: .analysisStateB}'
+```
+
 Notes:
+
 - `url` and `token` can be omitted from the request body when `DT_URL` and `DT_TOKEN` are set in the dtrg environment.
 - The endpoints are open by default. When the service is reachable beyond a trusted network, set `DTRG_API_KEY` so requests must present the same key in the `X-DTRG-Key` (or `Authorization: Bearer ...`) header.
 - Errors come back as `{"error": "..."}` with a non-200 status, never as a redirect.
