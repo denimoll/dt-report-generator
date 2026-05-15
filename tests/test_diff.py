@@ -120,7 +120,7 @@ def test_compute_diff_carries_analysis_state_per_side():
 
 # create_diff_report integration
 
-def _payloads_for(version, vuln_ids):
+def _payloads_for(version, vuln_ids, last_bom_ms=0):
     """ Mock fixture: a project at <version> with the given vulns on libA """
     return [
         (lambda u: u.endswith("/project"), []),
@@ -138,7 +138,8 @@ def _payloads_for(version, vuln_ids):
              "repositoryMeta": None},
         ]),
         ("/project/", {"name": "demo", "version": version, "metrics": {},
-                       "directDependencies": "[]"}),
+                       "directDependencies": "[]",
+                       "lastBomImport": last_bom_ms}),
     ]
 
 
@@ -154,8 +155,10 @@ def test_create_diff_report_writes_xlsx_and_summary(monkeypatch):
     monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
     # First call (project A) gets one payload set; second call (project B) the other.
     fixture_a = _fake_dt_get(_payloads_for("1.0", ["CVE-2024-0001",
-                                                   "CVE-2024-0002"]))
-    fixture_b = _fake_dt_get(_payloads_for("1.1", ["CVE-2024-0001"]))
+                                                   "CVE-2024-0002"],
+                                            last_bom_ms=1_000))
+    fixture_b = _fake_dt_get(_payloads_for("1.1", ["CVE-2024-0001"],
+                                            last_bom_ms=2_000))
     call_state = {"is_b": False, "switch_after": 4}  # 4 calls for project A
     counter = {"n": 0}
 
@@ -186,3 +189,39 @@ def test_create_diff_report_writes_xlsx_and_summary(monkeypatch):
     assert added_ids == []  # B has no new CVEs vs A
     assert removed_ids == ["CVE-2024-0002"]  # this one was fixed
     assert common_ids == ["CVE-2024-0001"]  # this one stayed
+
+
+def test_create_diff_report_swaps_so_newer_is_b(monkeypatch):
+    """ Operator passes newer-then-older; dtrg swaps so B is the newer one """
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    # First call (in argument order = "A") is the NEWER project.
+    # Second call ("B") is the OLDER. dtrg should swap them so the diff
+    # answers "what changed going from old to new", not the reverse.
+    fixture_a_newer = _fake_dt_get(_payloads_for(
+        "1.1", ["CVE-2024-0001"], last_bom_ms=2_000))
+    fixture_b_older = _fake_dt_get(_payloads_for(
+        "1.0", ["CVE-2024-0001", "CVE-2024-0002"], last_bom_ms=1_000))
+    counter = {"n": 0}
+
+    def dispatch(url, headers=None, verify=None, timeout=None):
+        counter["n"] += 1
+        if counter["n"] <= 4:
+            return fixture_a_newer(url, headers=headers, verify=verify, timeout=timeout)
+        return fixture_b_older(url, headers=headers, verify=verify, timeout=timeout)
+
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get", side_effect=dispatch):
+        create_diff_report(
+            _config("00000000-0000-0000-0000-00000000000a"),
+            _config("00000000-0000-0000-0000-00000000000b"),
+            td)
+        with open(os.path.join(td, "summary.json"), encoding="utf-8") as f:
+            summary = json.load(f)
+    # After swap: B (the report says "newer") must be 1.1.
+    assert summary["projectB"]["version"] == "1.1"
+    assert summary["projectA"]["version"] == "1.0"
+    # And the diff partitioning must reflect old->new direction.
+    removed_ids = sorted(e["vulnerability"] for e in summary["diff"]["removed"])
+    common_ids = sorted(e["vulnerability"] for e in summary["diff"]["common"])
+    assert removed_ids == ["CVE-2024-0002"]  # fixed in newer
+    assert common_ids == ["CVE-2024-0001"]

@@ -10,12 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 
 - **Requires CVE-PaaS exposing the `/v1/` API.** dtrg now calls `POST /v1/cve` (batch) and `GET /v1/get_info/<id>` is no longer used. Operators running an older CVE-PaaS need to upgrade.
+- **Renamed `DTRG_URL` → `DT_URL` and `DTRG_TOKEN` → `DT_TOKEN`.** These variables identify the Dependency-Track instance, not dtrg itself, so the new names are more accurate. The old names are no longer read; deployments must rename.
 
 ### Added
 
 - `summary.json` bundled in every report ZIP next to `result.docx` / `result.xlsx`. Carries the project metadata and the vulnerable-components list in a JSON-serializable shape (versioned via `schemaVersion: 1`) so CI pipelines can do severity gates, dashboards or diffing without parsing Office files.
 - Docker images now publish for `linux/amd64` **and** `linux/arm64`. Apple Silicon dev machines and arm SBCs (Raspberry Pi, Ampere) get a native image instead of QEMU emulation.
-- **Diff between project versions.** New endpoints `POST /reports/diff` (form) and `POST /api/v1/reports/diff` (JSON, CSRF-exempt, gated by `DTRG_API_KEY`). Takes two DT project UUIDs; returns a ZIP with `result.xlsx` (four sheets: `General information`, `Added`, `Removed`, `Common`) plus `summary.json` (`kind: "diff"`) describing what was added, removed and stayed common between the two snapshots. Common entries carry both component versions and both VEX analysis states, so a CVE that travelled with a library upgrade is visible at a glance.
+- **Diff between project versions.** New endpoints `POST /reports/diff` (form) and `POST /api/v1/reports/diff` (JSON, CSRF-exempt, gated by `DTRG_API_KEY`). Takes two DT project UUIDs; returns a ZIP with `result.xlsx` (six sheets including side-by-side project metadata, a unioned `Vulnerable dependencies` with `Used version (A) / (B)`, three issue sheets `Added` / `Removed` / `Common`, and a Technical sheet feeding the diagram) plus `summary.json` (`kind: "diff"`) describing what was added, removed and stayed common between the two snapshots. The xlsx is rendered into the `reports/draft_diff.xlsx` template. The pair is auto-swapped so the project with the more recent `lastBomImport` always ends up as B, regardless of the order the operator picked.
 - The browser form gains a "Compare with another version" checkbox. When checked, a second project select appears (lazy-loaded, debounced search, paginated — same UX as the main one) and the form's submit posts to `/reports/diff` instead of `/reports/get_report`.
 - **CVE-PaaS batch fetch.** dtrg now collects every canonical CVE id from the SBOM and asks CVE-PaaS for them in a single `POST /v1/cve` call (chunked into batches of 50). Replaces the per-CVE round-trip and slashes report time on large projects.
 - **Wider CVE-PaaS enrichment.** CVSS score, EPSS score and the `is_kev` / `is_poc` / `is_nuclei_template` flags from CVE-PaaS now reach each vulnerability. The `Additional info` column in the Excel report carries `KEV: <url>` / `POC: <url>` / `Nuclei: <url>` lines for any priority that has them; `summary.json` exposes `cvss`, `epss`, `isKev`, `isPoc`, `isNucleiTemplate` per vulnerability and inside diff entries.
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **CVE-PaaS errors no longer abort the report.** Network failures, 5xx responses and malformed JSON from CVE-PaaS are now logged at WARNING and the report is rendered without enrichment for the affected batch (graceful degradation).
+- **Searching by project UUID in the form dropdown now works.** DT's `searchText` parameter only matches project names; typing a full UUID into the select2 search returned an empty list. `get_projects` now detects UUID-shaped input and looks the project up directly via `/project/{uuid}`.
 
 ## [2.0.0]
 
