@@ -98,6 +98,19 @@ def get_severity(severities):
     return level, [key for key, val in severity.items() if val == level][0]
 
 
+def _project_uuid_from_config(config):
+    """ Extract the project UUID from a request config without any network.
+
+    Mirrors the parsing _resolve_params does (form sends "name version
+    (uuid)", API sends a bare UUID) but skips check_format_url / check_token
+    so callers can compare two configs before paying for DT probes. Returns
+    an empty string when no project key is present.
+    """
+    project_raw = (config.get("project") or [""])[0]
+    match = re.search(r"\(([^()]+)\)\s*$", project_raw)
+    return match.group(1) if match else project_raw.strip()
+
+
 def _resolve_params(config):
     """ Pull url/token/project out of the request config, validate them """
     raw_url = os.getenv("DT_URL") or (config.get("url") or [""])[0]
@@ -826,6 +839,14 @@ def _render_diff_summary(diff, data_a, data_b, output_dir):
     logger.info("Diff JSON summary saved")
 
 
+# Validation messages raised by create_diff_report. These are user-input
+# errors (picked the same project twice, picked two unrelated projects)
+# and the route layer is allowed to surface them verbatim to the caller.
+DIFF_ERROR_SAME_PROJECT = "Cannot compare a project with itself"
+DIFF_ERROR_CROSS_PROJECT_PREFIX = ("Diff requires two versions of the same "
+                                   "project")
+
+
 def create_diff_report(config_a, config_b, output_dir):
     """ Generate a diff report between two DT projects.
 
@@ -837,6 +858,12 @@ def create_diff_report(config_a, config_b, output_dir):
     """
     logger.info("Diff report generation started")
     try:
+        # Fail-fast on identical UUIDs before any DT round-trip. The full
+        # _resolve_params (next) does the network probe via check_token,
+        # so reaching it for a known-bad input is just wasted I/O.
+        if _project_uuid_from_config(config_a) == \
+                _project_uuid_from_config(config_b):
+            raise ValueError(DIFF_ERROR_SAME_PROJECT)
         url_a, headers_a, project_a = _resolve_params(config_a)
         url_b, headers_b, project_b = _resolve_params(config_b)
         # Load DT data first (no enrichment yet), then build a single union
@@ -845,6 +872,11 @@ def create_diff_report(config_a, config_b, output_dir):
         # appear in both projects.
         raw_a = _load_dt_data(url_a, headers_a, project_a)
         raw_b = _load_dt_data(url_b, headers_b, project_b)
+        if raw_a["name"] != raw_b["name"]:
+            raise ValueError(
+                f"{DIFF_ERROR_CROSS_PROJECT_PREFIX} "
+                f"(got '{raw_a['name']}' vs '{raw_b['name']}')"
+            )
         all_cve_ids = (_canonical_cve_ids(raw_a["vulnerabilities"])
                        | _canonical_cve_ids(raw_b["vulnerabilities"]))
         cve_paas_data = _fetch_cve_paas(all_cve_ids)

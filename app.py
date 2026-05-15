@@ -31,7 +31,12 @@ from werkzeug.utils import secure_filename
 from backend.dependency_graph import get_graph
 from backend.param_validators import projects_page_size
 from backend.projects import get_projects
-from backend.reports import create_diff_report, create_report
+from backend.reports import (
+    DIFF_ERROR_CROSS_PROJECT_PREFIX,
+    DIFF_ERROR_SAME_PROJECT,
+    create_diff_report,
+    create_report,
+)
 from form import GetReportForm
 
 # Logging setup
@@ -220,6 +225,26 @@ def _safe_download_name(report):
 # CodeQL py/stack-trace-exposure happy and to avoid accidental leaks
 # when validators evolve to embed contextual data.
 _GENERIC_REPORT_FAILURE = "Report generation failed. Check server logs for details."
+
+
+def _diff_user_error(err):
+    """ Return a safe-to-surface message for diff input errors, else None.
+
+    create_diff_report raises ValueError with one of two known prefixes
+    when the operator picks two of the same project or two unrelated
+    projects. Those messages are dtrg-controlled strings (no external
+    data interpolation beyond DT project names) and are explicitly
+    designed for the end user to read. Everything else falls back to
+    the generic message so we do not leak internal exception detail.
+    """
+    if not isinstance(err, Exception):
+        return None
+    msg = str(err)
+    if msg == DIFF_ERROR_SAME_PROJECT:
+        return msg
+    if msg.startswith(DIFF_ERROR_CROSS_PROJECT_PREFIX):
+        return msg
+    return None
 
 def _build_report(config, output_dir):
     """ Run create_report + graph + zip and return (zip_path, name_or_error) """
@@ -438,7 +463,7 @@ def get_diff_report():
         return send_file(zip_path, as_attachment=True,
                          download_name=_safe_download_name(report))
     logger.error(f"Diff report generation failed: {report}")
-    flash(_GENERIC_REPORT_FAILURE, "danger")
+    flash(_diff_user_error(report) or _GENERIC_REPORT_FAILURE, "danger")
     return redirect(url_for("index"))
 
 @app.route("/api/v1/reports/diff", methods=["POST"])
@@ -524,7 +549,8 @@ def get_diff_report_api():
     zip_path, report = _build_diff(config_a, config_b, output_dir)
     if not zip_path:
         logger.error(f"API diff report generation failed: {report}")
-        return jsonify(error=_GENERIC_REPORT_FAILURE), 400
+        return jsonify(
+            error=_diff_user_error(report) or _GENERIC_REPORT_FAILURE), 400
     return send_file(zip_path, as_attachment=True,
                      download_name=_safe_download_name(report),
                      mimetype="application/zip")

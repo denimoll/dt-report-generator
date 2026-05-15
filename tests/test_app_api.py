@@ -320,3 +320,50 @@ def test_api_diff_passes_two_uuids_into_create_diff_report(client):
     assert config_a["project"] == ["uuid-a"]
     assert config_b["project"] == ["uuid-b"]
     assert config_a["url"] == config_b["url"] == ["https://example.com"]
+
+
+def test_api_diff_surfaces_same_project_error(client):
+    """ User input errors (same UUID) reach the API caller verbatim """
+    with patch.object(app_module, "create_diff_report",
+                      return_value=(
+                          ValueError(app_module.DIFF_ERROR_SAME_PROJECT),
+                          None)):
+        res = client.post("/api/v1/reports/diff",
+                          headers={"X-DTRG-Key": "secret"},
+                          data=json.dumps({"url": "https://example.com",
+                                           "token": "t",
+                                           "projectA": "u", "projectB": "u"}),
+                          content_type="application/json")
+    assert res.status_code == 400
+    assert res.get_json()["error"] == app_module.DIFF_ERROR_SAME_PROJECT
+
+
+def test_api_diff_surfaces_cross_project_error(client):
+    """ Cross-project diff attempt -> verbatim error in API response """
+    err = ValueError(f"{app_module.DIFF_ERROR_CROSS_PROJECT_PREFIX} "
+                     f"(got 'foo' vs 'bar')")
+    with patch.object(app_module, "create_diff_report",
+                      return_value=(err, None)):
+        res = client.post("/api/v1/reports/diff",
+                          headers={"X-DTRG-Key": "secret"},
+                          data=json.dumps({"url": "https://example.com",
+                                           "token": "t",
+                                           "projectA": "ua", "projectB": "ub"}),
+                          content_type="application/json")
+    assert res.status_code == 400
+    assert "foo" in res.get_json()["error"]
+    assert "bar" in res.get_json()["error"]
+
+
+def test_api_diff_hides_unrelated_errors(client):
+    """ Anything that isn't a known user-input error stays behind the generic message """
+    with patch.object(app_module, "create_diff_report",
+                      return_value=(ValueError("boom internal"), None)):
+        res = client.post("/api/v1/reports/diff",
+                          headers={"X-DTRG-Key": "secret"},
+                          data=json.dumps({"url": "https://example.com",
+                                           "token": "t",
+                                           "projectA": "a", "projectB": "b"}),
+                          content_type="application/json")
+    assert res.status_code == 400
+    assert res.get_json()["error"] == app_module._GENERIC_REPORT_FAILURE

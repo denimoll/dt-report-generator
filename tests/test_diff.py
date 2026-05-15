@@ -238,6 +238,63 @@ def test_create_diff_report_dedups_cve_paas_into_single_batch(monkeypatch):
     assert post_calls[0]["cve_ids"] == ["CVE-2024-0001"]
 
 
+def test_create_diff_report_rejects_same_project_uuid(monkeypatch):
+    """ Same UUID on both sides -> fail fast, no project-data fetch """
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    same = _config("00000000-0000-0000-0000-00000000000a")
+    # check_token probes need to succeed; project-info / sbom / etc.
+    # should NEVER be reached because we fail right after _resolve_params.
+    ok_probe = MagicMock(status_code=200, text="[]")
+    ok_probe.json = lambda: []
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get",
+                      return_value=ok_probe) as mocked_get:
+        report, _ = create_diff_report(same, same, td)
+    assert isinstance(report, ValueError)
+    assert str(report) == reports.DIFF_ERROR_SAME_PROJECT
+    # Fail-fast: zero HTTP calls. The check happens before _resolve_params.
+    assert mocked_get.call_count == 0
+
+
+def test_create_diff_report_rejects_cross_project(monkeypatch):
+    """ Two projects with different names -> fail with cross-project error """
+    monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
+    fa = _fake_dt_get([
+        (lambda u: u.endswith("/project"), []),
+        ("finding/project", []),
+        ("bom/cyclonedx", {"vulnerabilities": [], "dependencies": []}),
+        ("component/project", []),
+        ("/project/", {"name": "appA", "version": "1.0", "metrics": {},
+                       "directDependencies": "[]", "lastBomImport": 1000}),
+    ])
+    fb = _fake_dt_get([
+        (lambda u: u.endswith("/project"), []),
+        ("finding/project", []),
+        ("bom/cyclonedx", {"vulnerabilities": [], "dependencies": []}),
+        ("component/project", []),
+        ("/project/", {"name": "appB", "version": "1.0", "metrics": {},
+                       "directDependencies": "[]", "lastBomImport": 2000}),
+    ])
+    counter = {"n": 0}
+
+    def dispatch(url, headers=None, verify=None, timeout=None):
+        counter["n"] += 1
+        if counter["n"] == 1 or 3 <= counter["n"] <= 6:
+            return fa(url)
+        return fb(url)
+
+    with tempfile.TemporaryDirectory() as td, \
+         patch.object(reports.requests, "get", side_effect=dispatch):
+        report, _ = create_diff_report(
+            _config("00000000-0000-0000-0000-00000000000a"),
+            _config("00000000-0000-0000-0000-00000000000b"),
+            td)
+    assert isinstance(report, ValueError)
+    assert str(report).startswith(reports.DIFF_ERROR_CROSS_PROJECT_PREFIX)
+    assert "appA" in str(report)
+    assert "appB" in str(report)
+
+
 def test_create_diff_report_swaps_so_newer_is_b(monkeypatch):
     """ Operator passes newer-then-older; dtrg swaps so B is the newer one """
     monkeypatch.delenv("DTRG_INCLUDE_SUPPRESSED", raising=False)
