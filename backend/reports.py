@@ -336,22 +336,18 @@ def _attach_vulnerabilities(components, vulnerabilities, analysis_by_pair,
             # Surface KEV / POC / Nuclei links in add_info regardless of
             # priority - the boolean flags from CVE-PaaS already gate the
             # presence of useful URLs, no need to also gate on Priority.
+            # CVE-PaaS shape: Details.Links is a dict of URL strings; the
+            # keys are "KEV" (not "CISA KEV"), "POC", "Nuclei templates".
             add_info = []
-            if is_kev:
-                kev_link = links.get("CISA KEV") or {}
-                kev_url = kev_link.get("url")
-                if kev_url:
-                    add_info.append(f"KEV: {kev_url}")
-            if is_poc:
-                for poc in links.get("POC") or []:
-                    poc_url = (poc or {}).get("url")
-                    if poc_url:
-                        add_info.append(f"POC: {poc_url}")
-            if is_template:
-                nuclei = links.get("Nuclei templates") or {}
-                template_url = nuclei.get("template_url")
-                if template_url:
-                    add_info.append(f"Nuclei: {template_url}")
+            kev_url = links.get("KEV")
+            if is_kev and kev_url:
+                add_info.append(f"KEV: {kev_url}")
+            poc_url = links.get("POC")
+            if is_poc and poc_url:
+                add_info.append(f"POC: {poc_url}")
+            template_url = links.get("Nuclei templates")
+            if is_template and template_url:
+                add_info.append(f"Nuclei: {template_url}")
             components[component_ref]["vulnerabilities"].append({
                 "uuid": vuln.get("bom-ref"),
                 "id": vuln_id,

@@ -165,15 +165,14 @@ def _vuln_payload(cve_id):
 
 def test_attach_vulnerabilities_surfaces_kev_in_add_info():
     components = _components_with_one_cve()
+    # CVE-PaaS response shape: Links is a dict of URL strings.
     cve_paas_data = {
         "CVE-2024-0001": {
             "Priority": "Medium",
             "Details": {
                 "is_exploited": True, "is_poc": False, "is_template": False,
                 "Links": {
-                    "CISA KEV": {"url": "https://www.cisa.gov/kev/CVE-2024-0001"},
-                    "POC": [],
-                    "Nuclei templates": {},
+                    "KEV": "https://www.cisa.gov/kev/CVE-2024-0001",
                 },
             },
         },
@@ -196,9 +195,8 @@ def test_attach_vulnerabilities_surfaces_poc_and_nuclei():
                 "is_exploited": False, "is_poc": True, "is_template": True,
                 "CVSS": 7.5, "EPSS": 0.123,
                 "Links": {
-                    "POC": [{"url": "https://github.com/poc/exploit"}],
-                    "Nuclei templates": {"template_url": "https://nuclei/lib"},
-                    "CISA KEV": {},
+                    "POC": "https://github.com/poc/exploit",
+                    "Nuclei templates": "https://nuclei/lib",
                 },
             },
         },
@@ -212,6 +210,25 @@ def test_attach_vulnerabilities_surfaces_poc_and_nuclei():
     assert "Nuclei: https://nuclei/lib" in v["add_info"]
     assert v["cvss"] == 7.5
     assert v["epss"] == 0.123
+
+
+def test_attach_vulnerabilities_handles_null_links():
+    """ CVE-PaaS returns Links: null when no flag is true """
+    components = _components_with_one_cve()
+    cve_paas_data = {
+        "CVE-2024-0001": {
+            "Priority": "Low",
+            "Details": {
+                "is_exploited": False, "is_poc": False, "is_template": False,
+                "Links": None,
+            },
+        },
+    }
+    reports._attach_vulnerabilities(components, _vuln_payload("CVE-2024-0001"),
+                                    {}, cve_paas_data)
+    v = components["c1"]["vulnerabilities"][0]
+    assert v["add_info"] == ""
+    assert v["is_kev"] is False
 
 
 def test_attach_vulnerabilities_no_enrichment_when_paas_silent():
