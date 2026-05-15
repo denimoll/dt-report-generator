@@ -678,35 +678,36 @@ def _fill_diff_general(ws, data_a, data_b):
 
 
 def _fill_diff_vulnerable_dependencies(ws, data_a, data_b):
-    """ Union of vulnerable components from A and B, one row per (name, group).
+    """ Components vulnerable in B (i.e. with vulns under Added or Common).
 
-    Per the user's design decisions:
-    - Final severity is B's (current state of the newer project)
-    - Last version / Graph level: B's, falling back to A when the component
-      is gone in B (it was removed between snapshots)
+    The Removed sheet lists vulns that no longer exist in B, so their host
+    component does not belong here either - the report is "what is still
+    vulnerable in the newer project". One row per (name, group). For each
+    such component:
+
+    - Used version (A) is read from A's full components dict (the component
+      may exist in A even when not vulnerable there). Empty when the
+      component is brand-new in B.
+    - Used version (B) is B's vulnerable component's version.
+    - Final severity / Last version / Graph level are B's values.
     """
-    def _index(vuln_components):
-        return {(c.get("name"), c.get("group") or ""): c for c in vuln_components}
-
-    idx_a = _index(data_a["vuln_components"])
-    idx_b = _index(data_b["vuln_components"])
-    all_keys = sorted(set(idx_a) | set(idx_b))
-    for num, key in enumerate(all_keys):
-        ca = idx_a.get(key)
-        cb = idx_b.get(key)
-        primary = cb or ca
+    a_components = (data_a.get("components") or {}).values()
+    a_by_key = {(c.get("name"), c.get("group") or ""): c for c in a_components}
+    for num, cb in enumerate(data_b["vuln_components"]):
+        key = (cb.get("name"), cb.get("group") or "")
+        ca = a_by_key.get(key)
         row = num + 2
         ws.cell(row=row, column=1, value=num + 1)
-        ws.cell(row=row, column=2, value=primary.get("name"))
-        ws.cell(row=row, column=3, value=primary.get("group"))
+        ws.cell(row=row, column=2, value=cb.get("name"))
+        ws.cell(row=row, column=3, value=cb.get("group"))
         ws.cell(row=row, column=4, value=str(ca.get("version")) if ca else "")
         ws.cell(row=row, column=5, value=str(cb.get("version")) if cb else "")
-        severity = primary.get("severity") or ""
-        if primary.get("is_direct_dependency"):
+        severity = cb.get("severity") or ""
+        if cb.get("is_direct_dependency"):
             severity = f"{severity} in direct dependency"
         ws.cell(row=row, column=6, value=severity)
-        ws.cell(row=row, column=7, value=str(primary.get("last_version") or ""))
-        graph_level = primary.get("graph_level")
+        ws.cell(row=row, column=7, value=str(cb.get("last_version") or ""))
+        graph_level = cb.get("graph_level")
         ws.cell(row=row, column=8,
                 value="" if graph_level is None else graph_level)
 
