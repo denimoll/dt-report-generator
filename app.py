@@ -321,11 +321,11 @@ def get_report_api():
           properties:
             url:
               type: string
-              description: DT instance URL. Optional when DTRG_URL is set.
+              description: DT instance URL. Optional when DT_URL is set.
               example: https://dependencytrack.example.com
             token:
               type: string
-              description: DT API key. Optional when DTRG_TOKEN is set.
+              description: DT API key. Optional when DT_TOKEN is set.
             project:
               type: string
               description: DT project UUID.
@@ -467,10 +467,10 @@ def get_diff_report_api():
           properties:
             url:
               type: string
-              description: DT instance URL. Optional when DTRG_URL is set.
+              description: DT instance URL. Optional when DT_URL is set.
             token:
               type: string
-              description: DT API key. Optional when DTRG_TOKEN is set.
+              description: DT API key. Optional when DT_TOKEN is set.
             projectA:
               type: string
               description: Baseline DT project UUID.
@@ -568,8 +568,8 @@ def get_all_projects():
     logger.info("Received request to fetch all projects")
     data = request.form.to_dict(flat=False)
     try:
-        url = data.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
-        token = data.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
+        url = data.get("url")[0] if not os.getenv("DT_URL") else os.getenv("DT_URL")
+        token = data.get("token")[0] if not os.getenv("DT_TOKEN") else os.getenv("DT_TOKEN")
         search_text = (data.get("searchText") or [""])[0]
         try:
             page_number = max(int((data.get("pageNumber") or ["1"])[0]), 1)
@@ -618,10 +618,10 @@ def get_all_projects_api():
           properties:
             url:
               type: string
-              description: DT instance URL. Optional when DTRG_URL is set.
+              description: DT instance URL. Optional when DT_URL is set.
             token:
               type: string
-              description: DT API key. Optional when DTRG_TOKEN is set.
+              description: DT API key. Optional when DT_TOKEN is set.
             searchText:
               type: string
               description: Optional substring filter forwarded to DT.
@@ -660,8 +660,8 @@ def get_all_projects_api():
     body = request.get_json(silent=True) or {}
     if not body and request.form:
         body = request.form.to_dict(flat=True)
-    url = os.getenv("DTRG_URL") or body.get("url") or ""
-    token = os.getenv("DTRG_TOKEN") or body.get("token") or ""
+    url = os.getenv("DT_URL") or body.get("url") or ""
+    token = os.getenv("DT_TOKEN") or body.get("token") or ""
     if not url or not token:
         return jsonify(error="url and token are required"), 400
 
