@@ -42,6 +42,15 @@ def test_fetch_cve_paas_returns_empty_without_env(monkeypatch):
     assert _fetch_cve_paas({"CVE-2024-0001"}) == {}
 
 
+def test_fetch_cve_paas_info_logs_when_url_unset(monkeypatch, caplog):
+    """ Operators see a single info line per report when CVE-PaaS is off """
+    monkeypatch.delenv("CVEPAAS_URL", raising=False)
+    import logging
+    with caplog.at_level(logging.INFO, logger="backend.reports"):
+        _fetch_cve_paas({"CVE-2024-0001"})
+    assert any("CVEPAAS_URL not set" in r.message for r in caplog.records)
+
+
 def test_fetch_cve_paas_returns_empty_for_empty_input(monkeypatch):
     monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
     assert _fetch_cve_paas(set()) == {}

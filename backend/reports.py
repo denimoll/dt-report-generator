@@ -244,7 +244,11 @@ def _fetch_cve_paas(cve_ids):
     aborted (graceful degradation).
     """
     base_url = (os.getenv("CVEPAAS_URL") or "").rstrip("/")
-    if not base_url or not cve_ids:
+    if not base_url:
+        logger.info("CVEPAAS_URL not set; rendering report without "
+                    "vulnerability enrichment from CVE-PaaS")
+        return {}
+    if not cve_ids:
         return {}
     headers = {}
     key = os.getenv("DTRG_CVEPAAS_KEY")
