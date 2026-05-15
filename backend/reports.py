@@ -621,7 +621,10 @@ def create_report(config, output_dir):
     """ Create report from DT into the per-request output_dir """
     logger.info("Report generation started")
     doc = DocxTemplate("reports/draft.docx")
-    excel = load_workbook("reports/draft.xlsx")
+    # keep_links=False drops any inherited xl/externalLinks/*. They linger
+    # in templates copied from other workbooks and cause Excel to pop up
+    # "This workbook contains links to external data sources" on open.
+    excel = load_workbook("reports/draft.xlsx", keep_links=False)
 
     try:
         url, headers, project = _resolve_params(config)
@@ -747,7 +750,7 @@ def _fill_diff_issues_sheet(ws, entries, version_kind):
 def _render_diff_xlsx(diff, data_a, data_b, output_dir):
     """ Fill reports/draft_diff.xlsx with the diff and save into output_dir """
     logger.info("Generating diff Excel report")
-    excel = load_workbook("reports/draft_diff.xlsx")
+    excel = load_workbook("reports/draft_diff.xlsx", keep_links=False)
     _fill_diff_general(excel["General information"], data_a, data_b)
     _fill_diff_vulnerable_dependencies(
         excel["Vulnerable dependencies"], data_a, data_b)
