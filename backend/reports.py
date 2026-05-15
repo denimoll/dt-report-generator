@@ -100,9 +100,9 @@ def get_severity(severities):
 
 def _resolve_params(config):
     """ Pull url/token/project out of the request config, validate them """
-    raw_url = os.getenv("DTRG_URL") or (config.get("url") or [""])[0]
+    raw_url = os.getenv("DT_URL") or (config.get("url") or [""])[0]
     url = check_format_url(raw_url)
-    token = os.getenv("DTRG_TOKEN") or (config.get("token") or [""])[0]
+    token = os.getenv("DT_TOKEN") or (config.get("token") or [""])[0]
     headers = check_token(token, url)
     project_raw = (config.get("project") or [""])[0]
     # form flow sends "name version (uuid)"; API flow sends a bare UUID

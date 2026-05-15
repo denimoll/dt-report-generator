@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Breaking changes
 
 - **Requires CVE-PaaS exposing the `/v1/` API.** dtrg now calls `POST /v1/cve` (batch) and `GET /v1/get_info/<id>` is no longer used. Operators running an older CVE-PaaS need to upgrade.
+- **Renamed `DTRG_URL` → `DT_URL` and `DTRG_TOKEN` → `DT_TOKEN`.** These variables identify the Dependency-Track instance, not dtrg itself, so the new names are more accurate. The old names are no longer read; deployments must rename.
 
 ### Added
 
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **CVE-PaaS errors no longer abort the report.** Network failures, 5xx responses and malformed JSON from CVE-PaaS are now logged at WARNING and the report is rendered without enrichment for the affected batch (graceful degradation).
+- **Searching by project UUID in the form dropdown now works.** DT's `searchText` parameter only matches project names; typing a full UUID into the select2 search returned an empty list. `get_projects` now detects UUID-shaped input and looks the project up directly via `/project/{uuid}`.
 
 ## [2.0.0]
 

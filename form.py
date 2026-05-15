@@ -37,11 +37,11 @@ class GetReportForm(FlaskForm):
     submit = SubmitField("Get report")
 
     def __init__(self, *args, **kwargs):
-        # Read DTRG_URL / DTRG_TOKEN per request rather than at class
+        # Read DT_URL / DT_TOKEN per request rather than at class
         # definition time, so flipping the env at runtime takes effect
         # on the next form render without restarting the process.
         super().__init__(*args, **kwargs)
-        if os.getenv("DTRG_URL"):
+        if os.getenv("DT_URL"):
             self.url.render_kw = _AAS_RENDER_KW
-        if os.getenv("DTRG_TOKEN"):
+        if os.getenv("DT_TOKEN"):
             self.token.render_kw = _AAS_RENDER_KW

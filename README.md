@@ -1,6 +1,4 @@
 # dt-report-generator (dtrg) <img width="30" src="./static/icon.svg"/>
-
-> **Note:** version 2.0.0 brings several breaking changes (TLS verification on by default, CSRF enforced on form endpoints, Docker runs as non-root, new env vars). See [CHANGELOG.md](CHANGELOG.md) for the full list before upgrading.
 ## Main information
 Tool for create reports from [Dependency Track](https://dependencytrack.org/) in Word (.docx) and Excel (.xlsx) formats.\
 More information about tool and how to use it can be found in the articles on habr [1](https://habr.com/ru/articles/860536/), [2](https://habr.com/ru/articles/900276/) (rus).
@@ -57,7 +55,7 @@ curl -fSL -o diff.zip \
 ```
 The ZIP contains `result.xlsx` (sheets: General information, Added, Removed, Common) and `summary.json` (`kind: "diff"`). Common entries surface both component versions and both VEX states so a CVE that travelled with a library upgrade is visible.
 Notes:
-- `url` and `token` can be omitted from the request body when `DTRG_URL` and `DTRG_TOKEN` are set in the dtrg environment.
+- `url` and `token` can be omitted from the request body when `DT_URL` and `DT_TOKEN` are set in the dtrg environment.
 - The endpoints are open by default. When the service is reachable beyond a trusted network, set `DTRG_API_KEY` so requests must present the same key in the `X-DTRG-Key` (or `Authorization: Bearer ...`) header.
 - Errors come back as `{"error": "..."}` with a non-200 status, never as a redirect.
 - These endpoints are deliberately CSRF-exempt (CI tooling has no session). The form endpoints (`/reports/get_report`, `/projects/get_all`) keep CSRF protection on; rely on `DTRG_API_KEY` and network controls for `/api/v1/*`.
@@ -68,8 +66,8 @@ You can set environment variable. A couple of examples: \
 \
 №1. dtrg as a service
 ```
-export DTRG_URL="http://evil.com"
-export DTRG_TOKEN="some_special_token"
+export DT_URL="http://evil.com"
+export DT_TOKEN="some_special_token"
 ```
 №2. Vulnerability prioritization or enrichment
 You must beside deploy [CVE-PaaS](https://github.com/denimoll/CVE-PaaS) tool. dtrg batches all CVE ids of a project into a single `POST /v1/cve` call (chunks of 50 transparently), so even projects with hundreds of CVEs add only a few CVE-PaaS round-trips. The enrichment surfaces CVSS, EPSS, KEV / PoC / Nuclei flags - directly in the `Additional info` column of the Excel report and as fields in `summary.json`. If CVE-PaaS is unreachable or returns an error, dtrg logs a warning and continues to render the report **without** enrichment instead of failing the run.
@@ -98,8 +96,8 @@ export DTRG_ALLOWED_HOSTS="dt.example.com,*.dt.example.com"
 ```
 
 All environment variables:
-* DTRG_URL - DT address
-* DTRG_TOKEN - DT API key
+* DT_URL - DT address
+* DT_TOKEN - DT API key
 * DTRG_PORT - dtrg port
 * DTRG_HOST - bind address (default: 0.0.0.0)
 * DTRG_DEBUG - dtrg (Flask) debug mode. Refuses to start when combined with a non-loopback DTRG_HOST unless DTRG_DEBUG_ALLOW_REMOTE=true is set, because the Werkzeug debugger can be used for remote code execution.
