@@ -115,7 +115,9 @@
                         };
                     },
                     transport: function (params, success, failure) {
-                        if (!$("#url").val() || !$("#token").val()) {
+                        const hasUrl = $("#url").val() || {{ has_env_url | tojson }}; // it's correct
+                        const hasToken = $("#token").val() || {{ has_env_token | tojson }}; // it's correct
+                        if (!hasUrl || !hasToken) {
                             success({items: [], total: 0, pageSize: 0});
                             return;
                         }
