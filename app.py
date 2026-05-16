@@ -23,13 +23,20 @@ from flask import (
 )
 from flasgger import Swagger
 from flask_bootstrap import Bootstrap5
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 
 from backend.dependency_graph import get_graph
 from backend.param_validators import projects_page_size
 from backend.projects import get_projects
-from backend.reports import create_report
+from backend.reports import (
+    DIFF_ERROR_CROSS_PROJECT_PREFIX,
+    DIFF_ERROR_SAME_PROJECT,
+    create_diff_report,
+    create_report,
+)
 from form import GetReportForm
 
 # Logging setup
@@ -38,12 +45,33 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
 bootstrap = Bootstrap5(app)
 csrf = CSRFProtect(app)
+
+# Rate limit on /api/v1/* only. Empty DTRG_API_RATE_LIMIT disables.
+# Form routes / probes / Swagger are not limited.
+_API_RATE_LIMIT = os.getenv("DTRG_API_RATE_LIMIT", "60/minute").strip()
+limiter = Limiter(get_remote_address, app=app, default_limits=[],
+                  storage_uri="memory://")
+
+
+@app.errorhandler(429)
+def _ratelimit_json(err):
+    """ Return JSON for /api/v1/* clients (default Flask-Limiter is HTML) """
+    if request.path.startswith("/api/v1/"):
+        return jsonify(error="rate_limited", description=str(err.description)), 429
+    return err
+
+
+def _api_limit():
+    """ Decorator that applies the configured rate limit, or no-op when empty """
+    if not _API_RATE_LIMIT:
+        return lambda view: view
+    return limiter.limit(_API_RATE_LIMIT)
 
 # OpenAPI / Swagger UI at /apidocs/, raw spec at /apispec.json.
 swagger = Swagger(app, config={
@@ -148,19 +176,21 @@ def index():
     form = GetReportForm()
     return render_template("index.html",
         form=form,
-        has_env_url=bool(os.getenv("DTRG_URL")),
-        has_env_token=bool(os.getenv("DTRG_TOKEN")))
+        has_env_url=bool(os.getenv("DT_URL")),
+        has_env_token=bool(os.getenv("DT_TOKEN")))
 
 
 # REPORTS GROUP
-def create_zip(output_dir, with_graph=False):
+def _create_zip(output_dir, with_graph=False):
     """ Bundle the rendered files inside output_dir into reports.zip """
     logger.info("Creating ZIP archive with report files")
     zip_path = os.path.join(output_dir, "reports.zip")
     try:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-            for file in ["result.docx", "result.xlsx"]:
-                zipf.write(os.path.join(output_dir, file), arcname=file)
+            for file in ["result.docx", "result.xlsx", "summary.json"]:
+                src = os.path.join(output_dir, file)
+                if os.path.exists(src):
+                    zipf.write(src, arcname=file)
             if with_graph:
                 zipf.write(os.path.join(output_dir, "graph.html"), arcname="graph.html")
         logger.info("ZIP archive created successfully")
@@ -196,13 +226,43 @@ def _safe_download_name(report):
 # when validators evolve to embed contextual data.
 _GENERIC_REPORT_FAILURE = "Report generation failed. Check server logs for details."
 
+
+def _diff_user_error(err):
+    """ Return a safe-to-surface message for diff input errors, else None.
+
+    create_diff_report raises ValueError with one of two known prefixes
+    when the operator picks two of the same project or two unrelated
+    projects. Those messages are dtrg-controlled strings (no external
+    data interpolation beyond DT project names) and are explicitly
+    designed for the end user to read. Everything else falls back to
+    the generic message so we do not leak internal exception detail.
+    """
+    if not isinstance(err, Exception):
+        return None
+    msg = str(err)
+    if msg == DIFF_ERROR_SAME_PROJECT:
+        return msg
+    if msg.startswith(DIFF_ERROR_CROSS_PROJECT_PREFIX):
+        return msg
+    return None
+
 def _build_report(config, output_dir):
     """ Run create_report + graph + zip and return (zip_path, name_or_error) """
     report, components = create_report(config, output_dir)
     if not isinstance(report, str):
         return None, report
-    with_graph = create_graph(components, output_dir) if components else False
-    zip_path = create_zip(output_dir, with_graph)
+    with_graph = _create_graph(components, output_dir) if components else False
+    zip_path = _create_zip(output_dir, with_graph)
+    if not zip_path:
+        return None, "Failed to build report archive"
+    return zip_path, report
+
+def _build_diff(config_a, config_b, output_dir):
+    """ Run create_diff_report + zip and return (zip_path, name_or_error) """
+    report, _ = create_diff_report(config_a, config_b, output_dir)
+    if not isinstance(report, str):
+        return None, report
+    zip_path = _create_zip(output_dir, with_graph=False)
     if not zip_path:
         return None, "Failed to build report archive"
     return zip_path, report
@@ -263,6 +323,7 @@ def get_report():
 
 @app.route("/api/v1/reports/get_report", methods=["POST"])
 @csrf.exempt
+@_api_limit()
 @require_api_key
 def get_report_api():
     """Generate a DT report and return it as a ZIP.
@@ -288,18 +349,18 @@ def get_report_api():
           properties:
             url:
               type: string
-              description: DT instance URL. Optional when DTRG_URL is set.
+              description: DT instance URL. Optional when DT_URL is set.
               example: https://dependencytrack.example.com
             token:
               type: string
-              description: DT API key. Optional when DTRG_TOKEN is set.
+              description: DT API key. Optional when DT_TOKEN is set.
             project:
               type: string
               description: DT project UUID.
               example: 00000000-0000-0000-0000-000000000000
     responses:
       200:
-        description: ZIP archive with result.docx, result.xlsx and graph.html.
+        description: ZIP archive with result.docx, result.xlsx, summary.json and graph.html.
       400:
         description: Validation error (missing field or upstream rejected).
         schema:
@@ -334,6 +395,162 @@ def get_report_api():
     if not zip_path:
         logger.error(f"API report generation failed: {report}")
         return jsonify(error=_GENERIC_REPORT_FAILURE), 400
+    return send_file(zip_path, as_attachment=True,
+                     download_name=_safe_download_name(report),
+                     mimetype="application/zip")
+
+@app.route("/reports/diff", methods=["POST"])
+def get_diff_report():
+    """Browser form submission for a project-version diff.
+    ---
+    tags:
+      - browser
+    consumes:
+      - application/x-www-form-urlencoded
+    produces:
+      - application/zip
+      - text/html
+    parameters:
+      - in: formData
+        name: csrf_token
+        required: true
+        type: string
+      - in: formData
+        name: url
+        type: string
+      - in: formData
+        name: token
+        type: string
+      - in: formData
+        name: project
+        type: string
+        description: 'Project A: "name version (uuid)" as produced by the form select.'
+      - in: formData
+        name: project_b
+        type: string
+        description: 'Project B: same shape; the diff is "from A to B".'
+    responses:
+      200:
+        description: ZIP archive with the diff result.xlsx and summary.json.
+      302:
+        description: Redirect back to the form on validation failure.
+      400:
+        description: CSRF token missing or invalid.
+    """
+    logger.info("Received request to generate diff report")
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
+    data = request.form.to_dict(flat=False)
+    logger.debug(f"Diff form data received: {_redact(data)}")
+    config_a = {
+        "url": data.get("url"),
+        "token": data.get("token"),
+        "project": data.get("project"),
+    }
+    config_b = {
+        "url": data.get("url"),
+        "token": data.get("token"),
+        "project": data.get("project_b"),
+    }
+    zip_path, report = _build_diff(config_a, config_b, output_dir)
+    if zip_path:
+        logger.info("Diff report generation successful. Sending ZIP file")
+        return send_file(zip_path, as_attachment=True,
+                         download_name=_safe_download_name(report))
+    logger.error(f"Diff report generation failed: {report}")
+    flash(_diff_user_error(report) or _GENERIC_REPORT_FAILURE, "danger")
+    return redirect(url_for("index"))
+
+@app.route("/api/v1/reports/diff", methods=["POST"])
+@csrf.exempt
+@_api_limit()
+@require_api_key
+def get_diff_report_api():
+    """Generate a diff report between two DT projects and return it as a ZIP.
+    ---
+    tags:
+      - api
+    security:
+      - ApiKey: []
+      - Bearer: []
+    consumes:
+      - application/json
+    produces:
+      - application/zip
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - projectA
+            - projectB
+          properties:
+            url:
+              type: string
+              description: DT instance URL. Optional when DT_URL is set.
+            token:
+              type: string
+              description: DT API key. Optional when DT_TOKEN is set.
+            projectA:
+              type: string
+              description: Baseline DT project UUID.
+              example: 00000000-0000-0000-0000-000000000001
+            projectB:
+              type: string
+              description: Comparison DT project UUID; diff is "from A to B".
+              example: 00000000-0000-0000-0000-000000000002
+    responses:
+      200:
+        description: ZIP archive with the diff result.xlsx and summary.json.
+      400:
+        description: Validation error (missing field or upstream rejected).
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+      401:
+        description: DTRG_API_KEY is set and the request did not present it.
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: unauthorized
+    """
+    logger.info("Received API request to generate diff report")
+    body = request.get_json(silent=True) or {}
+    if not body and request.form:
+        body = request.form.to_dict(flat=True)
+    base = {k: [str(body[k])] for k in ("url", "token") if body.get(k)}
+    config_a = dict(base)
+    config_b = dict(base)
+    if body.get("projectA"):
+        config_a["project"] = [str(body["projectA"])]
+    if body.get("projectB"):
+        config_b["project"] = [str(body["projectB"])]
+    logger.debug(f"API diff request: {_redact(config_a)} vs {_redact(config_b)}")
+
+    output_dir = _new_output_dir()
+
+    @after_this_request
+    def _cleanup(response):
+        response.call_on_close(lambda: shutil.rmtree(output_dir, ignore_errors=True))
+        return response
+
+    zip_path, report = _build_diff(config_a, config_b, output_dir)
+    if not zip_path:
+        logger.error(f"API diff report generation failed: {report}")
+        return jsonify(
+            error=_diff_user_error(report) or _GENERIC_REPORT_FAILURE), 400
     return send_file(zip_path, as_attachment=True,
                      download_name=_safe_download_name(report),
                      mimetype="application/zip")
@@ -380,8 +597,8 @@ def get_all_projects():
     logger.info("Received request to fetch all projects")
     data = request.form.to_dict(flat=False)
     try:
-        url = data.get("url")[0] if not os.getenv("DTRG_URL") else os.getenv("DTRG_URL")
-        token = data.get("token")[0] if not os.getenv("DTRG_TOKEN") else os.getenv("DTRG_TOKEN")
+        url = data.get("url")[0] if not os.getenv("DT_URL") else os.getenv("DT_URL")
+        token = data.get("token")[0] if not os.getenv("DT_TOKEN") else os.getenv("DT_TOKEN")
         search_text = (data.get("searchText") or [""])[0]
         try:
             page_number = max(int((data.get("pageNumber") or ["1"])[0]), 1)
@@ -407,6 +624,7 @@ def get_all_projects():
 
 @app.route("/api/v1/projects", methods=["POST"])
 @csrf.exempt
+@_api_limit()
 @require_api_key
 def get_all_projects_api():
     """List Dependency-Track projects.
@@ -429,10 +647,10 @@ def get_all_projects_api():
           properties:
             url:
               type: string
-              description: DT instance URL. Optional when DTRG_URL is set.
+              description: DT instance URL. Optional when DT_URL is set.
             token:
               type: string
-              description: DT API key. Optional when DTRG_TOKEN is set.
+              description: DT API key. Optional when DT_TOKEN is set.
             searchText:
               type: string
               description: Optional substring filter forwarded to DT.
@@ -471,8 +689,8 @@ def get_all_projects_api():
     body = request.get_json(silent=True) or {}
     if not body and request.form:
         body = request.form.to_dict(flat=True)
-    url = os.getenv("DTRG_URL") or body.get("url") or ""
-    token = os.getenv("DTRG_TOKEN") or body.get("token") or ""
+    url = os.getenv("DT_URL") or body.get("url") or ""
+    token = os.getenv("DT_TOKEN") or body.get("token") or ""
     if not url or not token:
         return jsonify(error="url and token are required"), 400
 
@@ -497,7 +715,7 @@ def get_all_projects_api():
 
 
 # GRAPH GROUP
-def create_graph(components, output_dir):
+def _create_graph(components, output_dir):
     """ Render the dependency graph HTML into output_dir """
     logger.info("Generating graph from components")
     graph = get_graph(components)

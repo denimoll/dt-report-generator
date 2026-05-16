@@ -1,6 +1,7 @@
 """ Module for validate and formatted parameters """
 import logging
 import os
+from urllib.parse import urlparse
 
 import requests
 import urllib3
@@ -38,6 +39,33 @@ def projects_page_size() -> int:
         return 50
 
 
+def allowed_hosts() -> list[str]:
+    """ Parse DTRG_ALLOWED_HOSTS into a list of lower-cased patterns.
+
+    Empty list means no restriction (current default — any host is accepted).
+    Patterns can be exact hostnames (`dt.example.com`) or wildcards
+    (`*.example.com`, matches one or more labels in front of `.example.com`).
+    """
+    raw = os.getenv("DTRG_ALLOWED_HOSTS", "")
+    return [h.strip().lower() for h in raw.split(",") if h.strip()]
+
+
+def host_matches(host: str, pattern: str) -> bool:
+    """ Match a hostname against a single allowlist pattern (case-insensitive).
+
+    `*.example.com` matches `a.example.com` and `x.y.example.com` but NOT
+    `example.com` itself. Plain patterns require exact equality.
+    """
+    if not host:
+        return False
+    host = host.lower()
+    pattern = pattern.lower()
+    if pattern.startswith("*."):
+        suffix = pattern[1:]  # ".example.com"
+        return host.endswith(suffix) and len(host) > len(suffix)
+    return host == pattern
+
+
 if not verify_tls():
     urllib3.disable_warnings()
 
@@ -48,6 +76,15 @@ def check_format_url(url: str) -> str:
     if not validators.url(url):
         logger.error(f"Invalid URL provided: {url}")
         raise ValueError("URL not valid")
+    # SSRF allowlist: when DTRG_ALLOWED_HOSTS is set, the URL host must
+    # match one of the patterns. The default empty list keeps the old
+    # "any host" behaviour for the on-prem case.
+    patterns = allowed_hosts()
+    if patterns:
+        host = (urlparse(url).hostname or "").lower()
+        if not any(host_matches(host, p) for p in patterns):
+            logger.warning(f"URL host {host!r} is not in DTRG_ALLOWED_HOSTS")
+            raise ValueError("URL host not allowed")
     url = url.split("/api/v")[0] + "/api/v1/"
     logger.debug(f"Formatted URL: {url}")
     return url

@@ -244,3 +244,126 @@ def test_apidocs_ui_renders(client):
     assert res.status_code == 200
     # Swagger UI ships a static index that mentions swagger
     assert b"swagger" in res.data.lower()
+
+
+# /api/v1/reports/diff
+
+def test_api_diff_unauthorized_without_key(client):
+    res = client.post("/api/v1/reports/diff",
+                      data=json.dumps({"projectA": "a", "projectB": "b"}),
+                      content_type="application/json")
+    assert res.status_code == 401
+
+
+def test_api_diff_400_on_missing_url(client):
+    """ Past auth, the resolver complains about empty URL """
+    res = client.post("/api/v1/reports/diff",
+                      headers={"X-DTRG-Key": "secret"},
+                      data=json.dumps({"projectA": "a", "projectB": "b"}),
+                      content_type="application/json")
+    assert res.status_code == 400
+
+
+# Rate limiting
+
+def test_health_is_not_rate_limited(monkeypatch):
+    """ /health is a probe target; rate limit must never apply """
+    # Even with a 1/day limit configured, /health should be free.
+    monkeypatch.setattr(app_module, "_API_RATE_LIMIT", "1/day")
+    app_module.app.config.update(TESTING=True)
+    with app_module.app.test_client() as c:
+        for _ in range(5):
+            res = c.get("/health")
+            assert res.status_code == 200
+
+
+def test_429_handler_returns_json_for_api_path():
+    """ /api/v1/* clients must get JSON on rate-limit, not the default HTML """
+    from werkzeug.exceptions import TooManyRequests
+    err = TooManyRequests(description="2 per 1 minute")
+    with app_module.app.test_request_context("/api/v1/projects"):
+        response, status = app_module._ratelimit_json(err)
+    assert status == 429
+    assert response.headers["Content-Type"].startswith("application/json")
+    body = response.get_json()
+    assert body["error"] == "rate_limited"
+    assert "2 per 1 minute" in body["description"]
+
+
+def test_429_handler_passthrough_for_form_path():
+    """ Non-API paths get Flask-Limiter's default (HTML) handling """
+    from werkzeug.exceptions import TooManyRequests
+    err = TooManyRequests(description="test")
+    with app_module.app.test_request_context("/reports/get_report"):
+        result = app_module._ratelimit_json(err)
+    assert result is err  # passthrough means default error handler picks up
+
+
+def test_api_diff_passes_two_uuids_into_create_diff_report(client):
+    """ Both project ids reach the backend's create_diff_report call """
+    with patch.object(app_module, "create_diff_report",
+                      return_value=("diff demo (07.05.2026)", None)) as mocked, \
+         patch.object(app_module, "_create_zip",
+                      return_value="/tmp/dtrg-x/reports.zip"), \
+         patch.object(app_module, "send_file",
+                      return_value=app_module.Response("", status=200,
+                                                       mimetype="application/zip")):
+        client.post("/api/v1/reports/diff",
+                    headers={"X-DTRG-Key": "secret"},
+                    data=json.dumps({"url": "https://example.com",
+                                     "token": "t",
+                                     "projectA": "uuid-a",
+                                     "projectB": "uuid-b"}),
+                    content_type="application/json")
+    args, _ = mocked.call_args
+    config_a, config_b, _ = args
+    assert config_a["project"] == ["uuid-a"]
+    assert config_b["project"] == ["uuid-b"]
+    assert config_a["url"] == config_b["url"] == ["https://example.com"]
+
+
+def test_api_diff_surfaces_same_project_error(client):
+    """ User input errors (same UUID) reach the API caller verbatim """
+    with patch.object(app_module, "create_diff_report",
+                      return_value=(
+                          ValueError(app_module.DIFF_ERROR_SAME_PROJECT),
+                          None)):
+        res = client.post("/api/v1/reports/diff",
+                          headers={"X-DTRG-Key": "secret"},
+                          data=json.dumps({"url": "https://example.com",
+                                           "token": "t",
+                                           "projectA": "u", "projectB": "u"}),
+                          content_type="application/json")
+    assert res.status_code == 400
+    assert res.get_json()["error"] == app_module.DIFF_ERROR_SAME_PROJECT
+
+
+def test_api_diff_surfaces_cross_project_error(client):
+    """ Cross-project diff attempt -> verbatim error in API response """
+    err = ValueError(f"{app_module.DIFF_ERROR_CROSS_PROJECT_PREFIX} "
+                     f"(got 'foo' vs 'bar')")
+    with patch.object(app_module, "create_diff_report",
+                      return_value=(err, None)):
+        res = client.post("/api/v1/reports/diff",
+                          headers={"X-DTRG-Key": "secret"},
+                          data=json.dumps({"url": "https://example.com",
+                                           "token": "t",
+                                           "projectA": "ua", "projectB": "ub"}),
+                          content_type="application/json")
+    assert res.status_code == 400
+    assert "foo" in res.get_json()["error"]
+    assert "bar" in res.get_json()["error"]
+
+
+def test_api_diff_hides_unrelated_errors(client):
+    """ Anything that isn't a known user-input error stays behind the generic message """
+    with patch.object(app_module, "create_diff_report",
+                      return_value=(ValueError("boom internal"), None)):
+        res = client.post("/api/v1/reports/diff",
+                          headers={"X-DTRG-Key": "secret"},
+                          data=json.dumps({"url": "https://example.com",
+                                           "token": "t",
+                                           "projectA": "a", "projectB": "b"}),
+                          content_type="application/json")
+    assert res.status_code == 400
+    assert res.get_json()["error"] == app_module._GENERIC_REPORT_FAILURE

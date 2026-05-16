@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0]
+
+### Breaking changes
+
+- **Requires CVE-PaaS exposing the `/v1/` API.** dtrg now calls `POST /v1/cve` (batch) and `GET /v1/get_info/<id>` is no longer used. Operators running an older CVE-PaaS need to upgrade.
+- **Renamed `DTRG_URL` → `DT_URL` and `DTRG_TOKEN` → `DT_TOKEN`.** These variables identify the Dependency-Track instance, not dtrg itself, so the new names are more accurate. The old names are no longer read; deployments must rename.
+
+### Added
+
+- `summary.json` bundled in every report ZIP next to `result.docx` / `result.xlsx`. Carries the project metadata and the vulnerable-components list in a JSON-serializable shape (versioned via `schemaVersion: 1`) so CI pipelines can do severity gates, dashboards or diffing without parsing Office files. README ships a jq cookbook covering severity gates, KEV / EPSS filters, "what was fixed" and VEX-change spotting.
+- Docker images now publish for `linux/amd64` **and** `linux/arm64`. Apple Silicon dev machines and arm SBCs (Raspberry Pi, Ampere) get a native image instead of QEMU emulation.
+- **Diff between project versions.** New endpoints `POST /reports/diff` (form) and `POST /api/v1/reports/diff` (JSON, CSRF-exempt, gated by `DTRG_API_KEY`). Takes two DT project UUIDs; returns a ZIP with `result.xlsx` (side-by-side project metadata, a `Vuln dependencies (project B)` sheet with `Used version (A) / (B)`, three issue sheets `Added` / `Removed` / `Common`) plus `summary.json` (`kind: "diff"`) describing what was added, removed and stayed common. Common entries carry `versionChanged`, `componentVersionA` / `componentVersionB` and both VEX states so a CVE that travelled with a library upgrade is visible. The xlsx is rendered into the `reports/draft_diff.xlsx` template. The pair is auto-swapped so the project with the more recent `lastBomImport` always ends up as B regardless of pick order. Self-comparison and cross-project diff attempts are rejected with explicit error messages from both routes; CVE-PaaS is queried once for the union of both projects' CVE ids instead of twice.
+- The browser form gains a "Compare with another version" checkbox. When checked, a second project select appears (lazy-loaded, debounced search, paginated — same UX as the main one) and the form's submit posts to `/reports/diff` instead of `/reports/get_report`.
+- **Project search by name + version and UUID.** The dropdown / `/projects/get_all` accepts a full UUID (direct `/project/<uuid>` lookup), a name fragment (DT's `searchText`), or a multi-token query like `"kafka 1.0"` — the first token narrows by name in DT, the rest filter the result set against `<name> <version>` client-side. In diff mode the comparison select prefixes the typed text with project A's name automatically.
+- **CVE-PaaS batch fetch.** dtrg now collects every canonical CVE id from the SBOM and asks CVE-PaaS for them in a single `POST /v1/cve` call (chunked into batches of 50). Replaces the per-CVE round-trip and slashes report time on large projects.
+- **Wider CVE-PaaS enrichment.** CVSS score, EPSS score and the `is_kev` / `is_poc` / `is_nuclei_template` flags from CVE-PaaS now reach each vulnerability. The `Additional info` column in the Excel report carries `KEV: <url>` / `POC: <url>` / `Nuclei: <url>` lines for any priority that has them; `summary.json` exposes `cvss`, `epss`, `isKev`, `isPoc`, `isNucleiTemplate` per vulnerability and inside diff entries.
+- **Rate limit on `/api/v1/*`.** Flask-Limiter caps requests per client IP. Default `60/minute`, configurable via the new `DTRG_API_RATE_LIMIT` env (empty disables). 429 responses are JSON for `/api/v1/*` callers; the form routes and `/health` stay unlimited.
+- **SSRF allowlist for the DT URL.** New `DTRG_ALLOWED_HOSTS` env (comma-separated, `*.subdomain` wildcards supported). When set, the URL accepted from the form / API must match one of the patterns or `check_format_url` rejects it before any HTTP call goes out. Empty by default - on-prem deployments keep the previous "any host" behaviour.
+- New env vars: `DTRG_API_RATE_LIMIT`, `DTRG_CVEPAAS_KEY`, `DTRG_ALLOWED_HOSTS`.
+
+### Changed
+
+- `pytest` runs in CI against Python 3.11, 3.12 and 3.13 (was only 3.12).
+- `GetReportForm` reads `DT_URL` / `DT_TOKEN` per request inside `__init__` rather than at class definition time, so flipping the env at runtime takes effect on the next form render without restarting the process.
+- `create_report` is now a thin orchestrator over named helpers (`_resolve_params`, `_load_project`, `_render_docx` / `_render_xlsx` / `_render_summary`). No behaviour change.
+- When CVE-PaaS reports a vulnerability with `Priority: "Undefined"` (unable to classify), the component-severity rollup now uses the raw CVSS severity demoted one tier (critical→high, high→medium, medium→low, low→low) instead of contributing 0 / "unknown" and dragging the whole component down.
+- An INFO log line is emitted once per report when `CVEPAAS_URL` is unset, so operators know `Additional info` is intentionally empty.
+
+### Fixed
+
+- **CVE-PaaS errors no longer abort the report.** Network failures, 5xx responses, malformed JSON, **and per-CVE error records** in a batch response are now logged at WARNING and the report is rendered without enrichment for the affected entries (graceful degradation).
+- **CVE-PaaS Links shape mismatch.** `Details.Links.POC` / `Nuclei templates` / `KEV` are plain URL strings (not nested objects) and the KEV key is `KEV`, not `CISA KEV` — dtrg's old code read the wrong shape and the `Additional info` column was always empty for KEV / PoC / Nuclei.
+- **Searching by project UUID, multi-token name+version, or version-within-locked-name in the form dropdown all work now.** DT's `searchText` only matches names; previously typing a UUID or `kafka 1.0` returned an empty list.
+- **`Vuln dependencies (project B)` sheet** no longer lists components whose vulnerabilities all moved to the `Removed` bucket. It now shows components actually still vulnerable in B (i.e. those whose vulns appear in `Added` or `Common`).
+- **`get_severity` returning `"unknown"` for inputs like `["info", "info"]`.** The canonical name for level 0 is now `info` (matching DT's lowest-impact bucket) instead of whichever name happened to come first in the lookup dict.
+- **Excel "external data sources" popup** when opening a diff report. `reports/draft_diff.xlsx` was carrying an inherited `xl/externalLinks/` fragment from the template it was copied from; `load_workbook(..., keep_links=False)` drops it.
+- **Diff of a project with itself, or of two unrelated projects.** `/api/v1/reports/diff` previously accepted any two UUIDs and produced a confusing report; now the server-side check rejects both cases with specific error messages.
+
 ## [2.0.0]
 
 ### Breaking changes
