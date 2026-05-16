@@ -26,12 +26,18 @@ def test_get_severity_treats_unknown_as_zero():
     level, label = reports.get_severity(["mystery", None, ""])
     assert level == 0
     # the function returns the first key whose value matches the level
-    assert label in {"unknown", "undefined", "info"}
+    assert label == "info"  # canonical name for level 0
 
 def test_get_severity_known_plus_unknown():
     level, label = reports.get_severity(["mystery", "high"])
     assert label == "high"
     assert level == 3
+
+def test_get_severity_all_info_returns_info_not_unknown():
+    """ Regression: two CVEs at priority=info used to roll up to "unknown" """
+    level, label = reports.get_severity(["info", "info"])
+    assert level == 0
+    assert label == "info"
 
 
 # VEX filtering through create_report (mocked DT API)

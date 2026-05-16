@@ -83,19 +83,27 @@ def _build_summary(project_name_str, project_url, project_info, vuln_components)
     }
 
 
+# Inputs that map to the same severity level. "unknown" / "undefined" are
+# placeholders for missing data; "info" is DT's labelled low-impact bucket.
+_SEVERITY_LEVELS = {
+    "unknown": 0,
+    "undefined": 0,
+    "info": 0,
+    "low": 1,
+    "medium": 2,
+    "high": 3,
+    "critical": 4,
+}
+# Canonical name returned for each level. Used to avoid the dict-iteration
+# accident that made get_severity(["info"]) return "unknown" just because
+# "unknown" appears first in the dict among the level-0 keys.
+_LEVEL_NAMES = {0: "info", 1: "low", 2: "medium", 3: "high", 4: "critical"}
+
+
 def get_severity(severities):
     """ Get level and name of severity by list severities """
-    severity = {
-        "unknown": 0,
-        "undefined": 0,
-        "info": 0,
-        "low": 1,
-        "medium": 2,
-        "high": 3,
-        "critical": 4
-    }
-    level = max(severity.get((x or "").lower(), 0) for x in severities)
-    return level, [key for key, val in severity.items() if val == level][0]
+    level = max(_SEVERITY_LEVELS.get((x or "").lower(), 0) for x in severities)
+    return level, _LEVEL_NAMES[level]
 
 
 def _project_uuid_from_config(config):
@@ -815,7 +823,7 @@ def _render_diff_xlsx(diff, data_a, data_b, output_dir):
     excel = load_workbook("reports/draft_diff.xlsx", keep_links=False)
     _fill_diff_general(excel["General information"], data_a, data_b)
     _fill_diff_vulnerable_dependencies(
-        excel["Vulnerable dependencies"], data_a, data_b)
+        excel["Vuln dependencies (project B)"], data_a, data_b)
     _fill_diff_issues_sheet(excel["Added issues"], diff["added"], "single")
     _fill_diff_issues_sheet(excel["Removed issues"], diff["removed"], "single")
     _fill_diff_issues_sheet(excel["Common issues"], diff["common"], "compare")
