@@ -297,8 +297,24 @@ def _fetch_cve_paas(cve_ids):
                 f"continuing without enrichment for this batch"
             )
             continue
-    logger.info(f"CVE-PaaS returned enrichment for {len(result)} of "
-                f"{len(cve_list)} requested ids")
+    # CVE-PaaS may return per-CVE error records mixed in with successes
+    # (e.g. {"CVE-2024-X": {"error": "vulnx error: Rate limit exceeded"}}).
+    # The downstream code already degrades gracefully (no Priority, no
+    # Details -> falls back to raw severity and skips add_info), but we
+    # log the count so operators see why enrichment is partial. CVE-PaaS
+    # auto-retries error records on the next request that includes them,
+    # so we deliberately do NOT call /v1/retry_errors here.
+    errored = [cve for cve, data in result.items()
+               if isinstance(data, dict) and data.get("error")]
+    if errored:
+        sample = ", ".join(errored[:5])
+        suffix = "" if len(errored) <= 5 else f" (+{len(errored) - 5} more)"
+        logger.warning(f"CVE-PaaS returned per-CVE errors for {len(errored)} "
+                       f"id(s): {sample}{suffix}; those CVEs will fall back "
+                       f"to raw severity without Priority / KEV / EPSS")
+    enriched = len(result) - len(errored)
+    logger.info(f"CVE-PaaS enrichment: {enriched} ok, {len(errored)} errored, "
+                f"of {len(cve_list)} requested ids")
     return result
 
 

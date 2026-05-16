@@ -138,6 +138,28 @@ def test_fetch_cve_paas_graceful_on_malformed_json(monkeypatch):
     assert result == {}
 
 
+def test_fetch_cve_paas_logs_per_cve_errors(monkeypatch, caplog):
+    """ Batch may return per-CVE error records; we warn about them """
+    monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
+    payload = {
+        "CVE-2024-0001": {"Priority": "High", "Details": {}},
+        "CVE-2024-0002": {"error": "vulnx error: Rate limit exceeded"},
+        "CVE-2024-0003": {"error": "not found in vulnx response"},
+    }
+    with patch.object(reports.requests, "post",
+                      return_value=_post_response(payload)):
+        import logging
+        with caplog.at_level(logging.WARNING, logger="backend.reports"):
+            result = _fetch_cve_paas({"CVE-2024-0001", "CVE-2024-0002",
+                                       "CVE-2024-0003"})
+    # All three are kept in the result so downstream attach can see them
+    assert set(result.keys()) == {"CVE-2024-0001", "CVE-2024-0002",
+                                   "CVE-2024-0003"}
+    # Warning lists the two errored ids
+    warned = [r.message for r in caplog.records if r.levelname == "WARNING"]
+    assert any("2 id(s)" in m and "CVE-2024-0002" in m for m in warned)
+
+
 def test_fetch_cve_paas_partial_failure_returns_what_succeeded(monkeypatch):
     """ One batch fails, the next succeeds - return the successful slice """
     monkeypatch.setenv("CVEPAAS_URL", "https://cvepaas.example.com")
