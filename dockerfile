@@ -1,4 +1,4 @@
-FROM python:3.14.4-alpine3.23
+FROM python:3.14.5-alpine3.23
 RUN apk update && apk upgrade && apk add bash
 
 WORKDIR /app
