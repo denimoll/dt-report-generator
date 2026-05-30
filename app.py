@@ -73,6 +73,20 @@ def _api_limit():
         return lambda view: view
     return limiter.limit(_API_RATE_LIMIT)
 
+
+@app.after_request
+def _security_headers(response):
+    """ Baseline security headers on every response.
+
+    HSTS and CSP belong on the TLS-terminating proxy in front of dtrg
+    (they need site-wide policy decisions); the three here are zero-config
+    defensive defaults that cost nothing and tighten common browser quirks.
+    """
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
+
 # OpenAPI / Swagger UI at /apidocs/, raw spec at /apispec.json.
 swagger = Swagger(app, config={
     "headers": [],

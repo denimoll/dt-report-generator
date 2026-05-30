@@ -22,6 +22,15 @@ def test_index_renders(client):
     assert b"Get report" in response.data
 
 
+def test_security_headers_present_on_every_response(client):
+    """ Baseline headers land on form pages, probes and the API alike. """
+    for path in ("/", "/health"):
+        res = client.get(path)
+        assert res.headers["X-Content-Type-Options"] == "nosniff"
+        assert res.headers["X-Frame-Options"] == "DENY"
+        assert res.headers["Referrer-Policy"] == "same-origin"
+
+
 def test_health_returns_status_and_version(client):
     """ /health is the Docker/k8s probe target. Must work without auth. """
     response = client.get("/health")
