@@ -11,4 +11,12 @@
 
 ## Reporting a Vulnerability
 
-Just write on [issues chapter](https://github.com/denimoll/dt-report-generator/issues) to report a vulnerability.
+For sensitive reports, please use **[GitHub Security Advisories](https://github.com/denimoll/dt-report-generator/security/advisories/new)** — the report stays private until a fix is published.
+
+For low-impact findings or general security questions, a regular [GitHub issue](https://github.com/denimoll/dt-report-generator/issues) is fine.
+
+What to expect:
+
+- Acknowledgement within a few days.
+- A fix on the supported branch and a patch release, with you credited in the release notes unless you prefer otherwise.
+- Coordinated disclosure: please give us a reasonable window before publishing details elsewhere.
