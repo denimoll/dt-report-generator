@@ -49,6 +49,15 @@ __version__ = "2.1.0"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
+# HTTPS-only session cookie. Opt-in via env to keep local HTTP dev working
+# (when set, the browser refuses to send the cookie over http:// and CSRF
+# breaks during a local form submit).
+app.config["SESSION_COOKIE_SECURE"] = os.getenv(
+    "DTRG_SECURE_COOKIES", "false").lower() in ["true", "1", "t"]
+# Defaults already, declared explicitly so a future Flask change in
+# defaults does not silently weaken them.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 bootstrap = Bootstrap5(app)
 csrf = CSRFProtect(app)
 
