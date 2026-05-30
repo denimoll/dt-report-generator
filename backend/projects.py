@@ -5,8 +5,7 @@ import logging
 import re
 from urllib.parse import quote
 
-import requests
-
+from backend._http import requests
 from backend.param_validators import check_format_url, check_token, http_timeout, verify_tls
 
 logger = logging.getLogger(__name__)

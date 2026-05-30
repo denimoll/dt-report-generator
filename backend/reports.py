@@ -6,11 +6,11 @@ import os
 import re
 from datetime import datetime
 
-import requests
 from docxtpl import DocxTemplate, RichText
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 
+from backend._http import requests
 from backend.dependency_graph import compute_graph_levels
 from backend.param_validators import (
     check_format_url,
