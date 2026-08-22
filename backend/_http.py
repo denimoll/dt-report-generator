@@ -18,7 +18,11 @@ _retry = Retry(
     raise_on_status=False,
 )
 _session = _requests.Session()
-_session.mount("http://", HTTPAdapter(max_retries=_retry))
+# Registering the adapter for the http:// scheme is not itself a plaintext
+# request -- it only decides which transport handles one. On-prem DT / CVE-PaaS
+# instances are routinely reachable over plain HTTP, and dropping this mount
+# would silently disable retries for them.
+_session.mount("http://", HTTPAdapter(max_retries=_retry))  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-session-with-http.request-session-with-http
 _session.mount("https://", HTTPAdapter(max_retries=_retry))
 
 
