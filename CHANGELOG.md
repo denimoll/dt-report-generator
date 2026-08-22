@@ -17,7 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Flask-Limiter` bumped from `3.10.1` to `4.1.1` (major; no API change for us).
 - `requests` bumped to `2.34.2`.
-- Docker base image updated to `python:3.14.5-alpine3.23`.
+- Docker base image updated to `python:3.14.7-alpine3.24` (latest 3.14 patch; deliberately staying on 3.14 — 3.15 is not adopted yet).
+- `pytest` bumped from `9.0.3` to `9.1.1` (dev-only).
+- **GitHub Actions refreshed to current majors**: `actions/checkout` v4 → v7, `actions/setup-python` v5 → v6, `actions/labeler` v4 → v7 (config migrated to the v5+ match-rule syntax), `actions/attest-build-provenance` v2 → v4, `docker/setup-qemu-action` v3 → v4, `docker/setup-buildx-action` v3 → v4, and the SHA-pinned `docker/login-action` / `metadata-action` / `build-push-action` re-pinned to v4.6.0 / v6.2.0 / v7.3.0 with the tag noted in a trailing comment.
+- Dependabot now also watches the `github-actions` ecosystem, so workflow actions stop drifting.
+- **`pip` is removed from the final image** after the dependencies are installed. Nothing at runtime shells out to it, and its vendored copies of `msgpack` / `setuptools` were the only remaining HIGH findings in an otherwise clean image.
+- **HEALTHCHECK now targets `127.0.0.1` instead of `localhost`.** BusyBox `wget` resolves `localhost` to `::1` first while the app binds IPv4 only, so the check failed on every container; `docker inspect` now reports `healthy`.
+- **The release workflow blocks on a Trivy scan.** `publish.yml` gains a `scan-image` job that builds the `linux/amd64` image, scans it with Trivy and fails on `CRITICAL` / `HIGH` findings that have a fix available (`ignore-unfixed`, so an unfixable base-image CVE cannot wedge a release). `build-and-push-image` now `needs: scan-image`, so nothing reaches ghcr.io unscanned.
+- The pytest matrix gains Python `3.14`, matching the version the Docker image actually runs on.
 - `SESSION_COOKIE_HTTPONLY=True` and `SESSION_COOKIE_SAMESITE="Lax"` are now pinned explicitly (they were already the Flask defaults; declared so a future framework change does not silently weaken them).
 - `SECURITY.md` directs sensitive reports to the GitHub Security Advisories private workflow and sets disclosure expectations.
 

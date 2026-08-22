@@ -186,6 +186,8 @@ Planned functionality:
 
 - [x] *Diff between project versions (2.1.0)*. New endpoints `/reports/diff` and `/api/v1/reports/diff`; checkbox on the form reveals the second project select. ZIP carries `result.xlsx` + `summary.json` describing what was added, removed or stayed common.
 
+- [x] *Hardening (2.2.0)*. Baseline security headers on every response (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`); session cookie pinned to `HttpOnly` + `SameSite=Lax` with opt-in `Secure` via `DTRG_SECURE_COOKIES`; transient 5xx from DT / CVE-PaaS retried through a shared `requests.Session`; dependencies, base image and GitHub Actions refreshed to current stable; the release workflow now blocks on a Trivy scan of the image before it is pushed. CSP / HSTS stay with the TLS-terminating proxy.
+
 ### CVE-PaaS collaboration
 Caching is intentionally out of scope here — CVE-PaaS owns it on its side.
 - [x] *Graceful degradation*. CVE-PaaS errors / timeouts no longer abort the report; dtrg logs a warning and continues without enrichment for that batch.

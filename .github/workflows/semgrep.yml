@@ -34,7 +34,7 @@ jobs:
     if: (github.actor != 'dependabot[bot]')
     steps:
       # Checkout project source
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Scan with the public ruleset; always emit SARIF so the upload step
       # has a file even when semgrep returns a non-zero exit code on
