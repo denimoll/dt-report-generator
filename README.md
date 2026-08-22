@@ -149,6 +149,7 @@ All environment variables:
 * DTRG_VERIFY_TLS - verify TLS certificate of DT and CVE-PaaS (default: true; set to false only for self-signed test instances)
 * DTRG_HTTP_TIMEOUT - timeout in seconds for outbound HTTP calls to DT and CVE-PaaS (default: 120)
 * DTRG_SECRET_KEY - Flask secret key used to sign session cookies and CSRF tokens for the form endpoints (`/`, `/reports/get_report`, `/projects/get_all`). Set a stable value when running multiple workers or behind a reverse proxy so tokens stay valid across restarts. If unset, a random key is generated on each start.
+* DTRG_SECURE_COOKIES - when `true`, the session cookie is sent only over HTTPS (`Secure` flag). Default `false` so local `http://localhost` dev keeps working. Turn on for any deployment behind TLS.
 * DTRG_API_KEY - shared secret required on the /api/v1/* endpoints. When unset (default) those endpoints are open and only network controls protect them; when set, callers must present the same value in an `X-DTRG-Key` or `Authorization: Bearer ...` header.
 * DTRG_API_RATE_LIMIT - per-IP rate limit applied to /api/v1/* (default `60/minute`). Empty disables enforcement. Format follows [Flask-Limiter notation](https://flask-limiter.readthedocs.io/en/stable/configuration.html#rate-limit-string-notation): e.g. `30/minute`, `1000/hour`, `5/second`.
 * DTRG_ALLOWED_HOSTS - comma-separated SSRF allowlist for the DT URL. When set, only listed hosts are accepted from the form / API (`*.example.com` matches subdomains). Default empty = no restriction (suitable for on-prem). Use this when running dtrg as a public service.
@@ -184,6 +185,8 @@ Planned functionality:
 - [x] *Quick wins (2.1.0)*. `summary.json` bundled in the report ZIP; multi-arch Docker (`linux/amd64`+`linux/arm64`); CI matrix Python 3.11/3.12/3.13; per-request env in `GetReportForm`.
 
 - [x] *Diff between project versions (2.1.0)*. New endpoints `/reports/diff` and `/api/v1/reports/diff`; checkbox on the form reveals the second project select. ZIP carries `result.xlsx` + `summary.json` describing what was added, removed or stayed common.
+
+- [x] *Hardening (2.2.0)*. Baseline security headers on every response (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`); session cookie pinned to `HttpOnly` + `SameSite=Lax` with opt-in `Secure` via `DTRG_SECURE_COOKIES`; transient 5xx from DT / CVE-PaaS retried through a shared `requests.Session`; dependencies, base image and GitHub Actions refreshed to current stable; the release workflow now blocks on a Trivy scan of the image before it is pushed. CSP / HSTS stay with the TLS-terminating proxy.
 
 ### CVE-PaaS collaboration
 Caching is intentionally out of scope here — CVE-PaaS owns it on its side.

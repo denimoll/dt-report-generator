@@ -45,10 +45,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-__version__ = "2.1.0"
+__version__ = "2.2.0"
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("DTRG_SECRET_KEY") or secrets.token_hex(16)
+# HTTPS-only session cookie. Opt-in via env to keep local HTTP dev working
+# (when set, the browser refuses to send the cookie over http:// and CSRF
+# breaks during a local form submit).
+app.config["SESSION_COOKIE_SECURE"] = os.getenv(
+    "DTRG_SECURE_COOKIES", "false").lower() in ["true", "1", "t"]
+# Defaults already, declared explicitly so a future Flask change in
+# defaults does not silently weaken them.
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 bootstrap = Bootstrap5(app)
 csrf = CSRFProtect(app)
 
@@ -72,6 +81,20 @@ def _api_limit():
     if not _API_RATE_LIMIT:
         return lambda view: view
     return limiter.limit(_API_RATE_LIMIT)
+
+
+@app.after_request
+def _security_headers(response):
+    """ Baseline security headers on every response.
+
+    HSTS and CSP belong on the TLS-terminating proxy in front of dtrg
+    (they need site-wide policy decisions); the three here are zero-config
+    defensive defaults that cost nothing and tighten common browser quirks.
+    """
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    return response
 
 # OpenAPI / Swagger UI at /apidocs/, raw spec at /apispec.json.
 swagger = Swagger(app, config={

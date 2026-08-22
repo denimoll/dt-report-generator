@@ -3,9 +3,10 @@ import logging
 import os
 from urllib.parse import urlparse
 
-import requests
 import urllib3
 import validators
+
+from backend._http import requests
 
 logger = logging.getLogger(__name__)
 

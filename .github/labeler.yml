@@ -1,2 +1,3 @@
+# actions/labeler v5+ match-rule syntax: each rule value is a list of regexes.
 Release:
-- head-branch: "main"
+- head-branch: ['^main$']
