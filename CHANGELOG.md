@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Flask-Limiter` bumped from `3.10.1` to `4.1.1` (major; no API change for us).
 - `requests` bumped to `2.34.2`.
 - Docker base image updated to `python:3.14.7-alpine3.24` (latest 3.14 patch; deliberately staying on 3.14 — 3.15 is not adopted yet).
-- `pytest` bumped from `9.0.3` to `9.1.1` (dev-only).
+- `pytest` bumped from `9.0.3` to `9.2.0` (dev-only).
+- `Bootstrap-Flask` bumped from `2.5.0` to `2.6.0`, `validators` from `0.35.0` to `0.36.0`.
 - **GitHub Actions refreshed to current majors**: `actions/checkout` v4 → v7, `actions/setup-python` v5 → v6, `actions/labeler` v4 → v7 (config migrated to the v5+ match-rule syntax), `actions/attest-build-provenance` v2 → v4, `docker/setup-qemu-action` v3 → v4, `docker/setup-buildx-action` v3 → v4, and the SHA-pinned `docker/login-action` / `metadata-action` / `build-push-action` re-pinned to v4.6.0 / v6.2.0 / v7.3.0 with the tag noted in a trailing comment.
 - Dependabot now also watches the `github-actions` ecosystem, so workflow actions stop drifting.
 - **Every GitHub Action is pinned to a commit SHA** with the version in a trailing comment. Floating major tags can be silently repointed by the action owner, which is how the `trivy-action` and `kics-github-action` compromises spread; the repo already pinned the `docker/*` actions this way, so the rest now match.
